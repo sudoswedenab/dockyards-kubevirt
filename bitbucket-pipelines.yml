@@ -1,0 +1,89 @@
+image: docker.io/library/golang:1.22
+
+definitions:
+  steps:
+  - step: &default
+      name: default
+      script:
+      - echo "export VERSION=$(git branch --show-current)-$(git rev-parse --short HEAD)-$(date +%s)" >> env.sh
+      - echo "export IMAGE=075899289117.dkr.ecr.eu-north-1.amazonaws.com/dockyards-kubevirt" >> env.sh
+      - echo "export REVISION=$(git branch --show-current)@$(git rev-parse --show-object-format):$(git rev-parse HEAD)" >> env.sh
+      - cat env.sh
+      artifacts:
+      - env.sh
+  - step: &tag
+      name: tag
+      script:
+      - echo "export VERSION=$(git describe --exact-match)" >> env.sh
+      - echo "export IMAGE=075899289117.dkr.ecr.eu-north-1.amazonaws.com/dockyards-kubevirt" >> env.sh
+      - echo "export REVISION=$(git branch --show-current)@$(git rev-parse --show-object-format):$(git rev-parse HEAD)" >> env.sh
+      artifacts:
+      - env.sh
+  - step: &build
+      name: build
+      script:
+      - source env.sh
+      - go install cuelang.org/go/cmd/cue@v0.9.1
+      - docker build . --file Containerfile --tag dockyards-kubevirt
+      - docker save dockyards-kubevirt --output dockyards-kubevirt.tar
+      - cue eval hack/kustomization.cue --inject "name=${IMAGE}" --inject "tag=${VERSION}" --out yaml --outfile config/kustomization.yaml
+      services:
+      - docker
+      caches:
+      - docker
+      artifacts:
+      - dockyards-kubevirt.tar
+      - config/kustomization.yaml
+  - step: &push
+      name: push
+      script:
+      - source env.sh
+      - cat ecr-login-password | docker login --username AWS --password-stdin 075899289117.dkr.ecr.eu-north-1.amazonaws.com
+      - docker load --input dockyards-kubevirt.tar
+      - docker tag dockyards-kubevirt "${IMAGE}:${VERSION}"
+      - docker push "${IMAGE}:${VERSION}"
+      services:
+      - docker
+  - step: &vendor
+      name: vendor
+      script:
+      - export GOPRIVATE=bitbucket.org/sudosweden
+      - git config --global url."ssh://git@bitbucket.org/".insteadOf "https://bitbucket.org/"
+      - go mod vendor
+      artifacts:
+      - vendor/**
+  - step: &ecr-login
+      name: ecr-login
+      image: docker.io/amazon/aws-cli:2.15.19
+      oidc: true
+      script:
+      - echo $BITBUCKET_STEP_OIDC_TOKEN > /tmp/web-identity-token
+      - aws configure --profile bitbucket set region eu-north-1
+      - aws configure --profile bitbucket set role_arn arn:aws:iam::075899289117:role/BitbucketPipelinesDockyardsKubevirt
+      - aws configure --profile bitbucket set web_identity_token_file /tmp/web-identity-token
+      - aws ecr get-login-password --profile bitbucket > ecr-login-password
+      artifacts:
+      - ecr-login-password
+  - step: &flux
+      name: flux
+      image: ghcr.io/fluxcd/flux-cli:v2.2.3
+      script:
+      - source env.sh
+      - flux push artifact "oci://${IMAGE}:${VERSION}-manifests" --path config --source "$BITBUCKET_GIT_HTTP_ORIGIN" --revision "$REVISION" --creds "AWS:$(cat ecr-login-password)"
+
+pipelines:
+  default:
+  - step: *default
+  - step: *vendor
+  - step: *build
+  - step: *ecr-login
+  - step: *push
+  - step: *flux
+  tags:
+    'v*':
+    - step: *tag
+    - step: *vendor
+    - step: *build
+    - step: *ecr-login
+    - step: *push
+    - step: *flux
