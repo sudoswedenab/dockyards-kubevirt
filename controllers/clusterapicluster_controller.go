@@ -18,6 +18,7 @@ import (
 )
 
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tlsroutes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=create;get;list;patch;watch
 
 type ClusterAPIClusterReconciler struct {
