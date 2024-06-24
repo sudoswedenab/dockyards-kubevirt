@@ -61,9 +61,16 @@ func (r *DockyardsNodeReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	cpu := resource.NewQuantity(int64(kubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.CPU.Cores), resource.DecimalSI)
 
+	storage := resource.Quantity{}
+
+	for _, dataVolumeTemplate := range kubevirtMachine.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+		storage.Add(*dataVolumeTemplate.Spec.PVC.Resources.Requests.Storage())
+	}
+
 	dockyardsNode.Status.Resources = corev1.ResourceList{
-		corev1.ResourceCPU:    *cpu,
-		corev1.ResourceMemory: *kubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory.Guest,
+		corev1.ResourceCPU:     *cpu,
+		corev1.ResourceMemory:  *kubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory.Guest,
+		corev1.ResourceStorage: storage,
 	}
 
 	return ctrl.Result{}, nil
