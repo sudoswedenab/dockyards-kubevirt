@@ -120,6 +120,19 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &machineTemplate, func() error {
+		machineTemplate.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: dockyardsv1.GroupVersion.String(),
+				Kind:       dockyardsv1.NodePoolKind,
+				Name:       dockyardsNodePool.Name,
+				UID:        dockyardsNodePool.UID,
+			},
+		}
+
+		if !machineTemplate.CreationTimestamp.IsZero() {
+			return nil
+		}
+
 		machineTemplate.Spec.Template.Spec.BootstrapCheckSpec = providerv1.VirtualMachineBootstrapCheckSpec{
 			CheckStrategy: "none",
 		}
