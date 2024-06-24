@@ -90,6 +90,15 @@ rules:
 - apiGroups:
   - dockyards.io
   resources:
+  - organizations
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - dockyards.io
+  resources:
   - releases
   verbs:
   - get

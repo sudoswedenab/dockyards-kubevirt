@@ -11,6 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// +kubebuilder:rbac:groups=dockyards.io,resources=organizations,verbs=get;list;patch;watch
+
 type DockyardsOrganizationReconciler struct {
 	client.Client
 }
