@@ -44,9 +44,25 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - dockyards.io
   resources:
   - clusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - dockyards.io
+  resources:
+  - deployments
   verbs:
   - get
   - list
@@ -64,6 +80,14 @@ rules:
   - dockyards.io
   resources:
   - releases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - gateways
   verbs:
   - get
   - list
