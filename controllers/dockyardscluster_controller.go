@@ -13,6 +13,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=deployments,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=kustomizedeployments,verbs=create;get;list;patch;watch
+
 type DockyardsClusterReconciler struct {
 	client.Client
 }

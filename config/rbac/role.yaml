@@ -66,8 +66,20 @@ rules:
   resources:
   - deployments
   verbs:
+  - create
   - get
   - list
+  - patch
+  - watch
+- apiGroups:
+  - dockyards.io
+  resources:
+  - kustomizedeployments
+  verbs:
+  - create
+  - get
+  - list
+  - patch
   - watch
 - apiGroups:
   - dockyards.io
