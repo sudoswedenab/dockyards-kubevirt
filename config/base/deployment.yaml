@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dockyards-kubevirt
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dockyards-kubevirt
+      app.kubernetes.io/part-of: dockyards
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dockyards-kubevirt
+        app.kubernetes.io/part-of: dockyards
+      name: dockyards-kubevirt
+    spec:
+      containers:
+      - image: dockyards-kubevirt
+        name: dockyards-kubevirt
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      imagePullSecrets:
+      - name: dockyards-registry
+      serviceAccountName: dockyards-kubevirt
+      securityContext:
+        fsGroup: 65532
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
