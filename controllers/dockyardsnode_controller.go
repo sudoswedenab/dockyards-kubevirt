@@ -14,6 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// +kubebuilder:rbac:groups=dockyards.io,resources=nodes,verbs=get;list;patch;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch
+
 type DockyardsNodeReconciler struct {
 	client.Client
 }
@@ -70,6 +73,7 @@ func (r *DockyardsNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	scheme := mgr.GetScheme()
 
 	_ = dockyardsv1.AddToScheme(scheme)
+	_ = providerv1.AddToScheme(scheme)
 
 	err := ctrl.NewControllerManagedBy(mgr).For(&dockyardsv1.Node{}).Complete(r)
 	if err != nil {

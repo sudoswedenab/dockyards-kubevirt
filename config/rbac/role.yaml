@@ -48,8 +48,10 @@ rules:
   resources:
   - services
   verbs:
+  - create
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - dockyards.io
@@ -71,6 +73,15 @@ rules:
   - dockyards.io
   resources:
   - nodepools
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - dockyards.io
+  resources:
+  - nodes
   verbs:
   - get
   - list
@@ -109,6 +120,14 @@ rules:
   - get
   - list
   - patch
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - kubevirtmachines
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
