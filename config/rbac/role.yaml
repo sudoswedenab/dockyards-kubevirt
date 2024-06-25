@@ -106,8 +106,13 @@ rules:
   verbs:
   - get
   - list
-  - patch
   - watch
+- apiGroups:
+  - dockyards.io
+  resources:
+  - organizations/status
+  verbs:
+  - patch
 - apiGroups:
   - dockyards.io
   resources:
