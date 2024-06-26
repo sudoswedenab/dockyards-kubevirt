@@ -64,6 +64,12 @@ rules:
 - apiGroups:
   - dockyards.io
   resources:
+  - clusters/status
+  verbs:
+  - patch
+- apiGroups:
+  - dockyards.io
+  resources:
   - deployments
   verbs:
   - create

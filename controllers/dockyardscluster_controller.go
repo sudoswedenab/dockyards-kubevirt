@@ -5,15 +5,20 @@ import (
 	"strings"
 
 	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha2"
+	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 )
 
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=clusters/status,verbs=patch
 // +kubebuilder:rbac:groups=dockyards.io,resources=deployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=kustomizedeployments,verbs=create;get;list;patch;watch
 
@@ -21,16 +26,65 @@ type DockyardsClusterReconciler struct {
 	client.Client
 }
 
-func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	var dockyardsCluster dockyardsv1.Cluster
 	err := r.Get(ctx, req.NamespacedName, &dockyardsCluster)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	result, err := r.reconcileIngressNginx(ctx, &dockyardsCluster)
+	patchHelper, err := patch.NewHelper(&dockyardsCluster, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	defer func() {
+		err := patchHelper.Patch(ctx, &dockyardsCluster)
+		if err != nil {
+			result = ctrl.Result{}
+			reterr = kerrors.NewAggregate([]error{reterr, err})
+		}
+	}()
+
+	result, err = r.reconcileAPIEndpoint(ctx, &dockyardsCluster)
 	if err != nil {
 		return result, err
+	}
+
+	result, err = r.reconcileIngressNginx(ctx, &dockyardsCluster)
+	if err != nil {
+		return result, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	var service corev1.Service
+	err := r.Get(ctx, client.ObjectKey{Name: "dockyards-public", Namespace: "dockyards"}, &service)
+	if client.IgnoreNotFound(err) != nil {
+		return ctrl.Result{}, err
+	}
+
+	if apierrors.IsNotFound(err) {
+		logger.Info("ignoring cluster without public service")
+
+		return ctrl.Result{}, nil
+	}
+
+	if service.Spec.Type != corev1.ServiceTypeExternalName || service.Spec.ExternalName == "" {
+		logger.Info("ignoring service")
+
+		return ctrl.Result{}, nil
+	}
+
+	externalName := dockyardsCluster.Namespace + "-" + dockyardsCluster.Name + "." + service.Spec.ExternalName
+
+	dockyardsCluster.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+		Host: externalName,
+		Port: 6443,
 	}
 
 	return ctrl.Result{}, nil
