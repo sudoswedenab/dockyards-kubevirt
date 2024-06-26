@@ -14,7 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// +kubebuilder:rbac:groups=dockyards.io,resources=nodes,verbs=get;list;patch;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=nodes/status,verbs=patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch
 
 type DockyardsNodeReconciler struct {
