@@ -187,7 +187,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 			service.Spec.Ports = servicePorts
 
 			service.Spec.Selector = map[string]string{
-				"cluster.x-k8s.io/cluster-name": "test-j9fpt",
+				"cluster.x-k8s.io/cluster-name": cluster.Name,
 				"cluster.x-k8s.io/role":         "worker",
 			}
 
