@@ -162,6 +162,18 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 					"name":    "ingress-nginx-controller",
 				},
 			},
+			{
+				"patch": strings.Join([]string{
+					"- op: add",
+					"  path: /metadata/annotations",
+					"  value:",
+					"    ingressclass.kubernetes.io/is-default-class: \"true\"",
+				}, "\n"),
+				"target": map[string]string{
+					"kind": "IngressClass",
+					"name": "nginx",
+				},
+			},
 		},
 		"resources": []string{
 			"github.com/kubernetes/ingress-nginx/deploy/static/provider/cloud?ref=controller-v1.10.1",
