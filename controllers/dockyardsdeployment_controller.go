@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"strings"
 
 	"bitbucket.org/sudosweden/dockyards-backend/pkg/api/apiutil"
 	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha2"
@@ -203,7 +204,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		hostnames := make([]gatewayapiv1.Hostname, len(ownerCluster.Status.DNSZones))
 
 		for i, dnsZone := range ownerCluster.Status.DNSZones {
-			hostname := "*." + dnsZone
+			hostname := "*." + strings.TrimSuffix(dnsZone, ".")
 
 			hostnames[i] = gatewayapiv1.Hostname(hostname)
 		}
