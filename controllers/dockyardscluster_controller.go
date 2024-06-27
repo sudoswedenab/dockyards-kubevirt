@@ -10,9 +10,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	"sigs.k8s.io/yaml"
 )
 
@@ -56,6 +59,11 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return result, err
 	}
 
+	result, err = r.reconcileTLSRoute(ctx, &dockyardsCluster)
+	if err != nil {
+		return result, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -80,10 +88,10 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, d
 		return ctrl.Result{}, nil
 	}
 
-	externalName := dockyardsCluster.Namespace + "-" + dockyardsCluster.Name + "." + service.Spec.ExternalName
+	host := dockyardsCluster.Namespace + "-" + dockyardsCluster.Name + "." + service.Spec.ExternalName
 
 	dockyardsCluster.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
-		Host: externalName,
+		Host: host,
 		Port: 6443,
 	}
 
@@ -202,10 +210,77 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 	return ctrl.Result{}, nil
 }
 
+func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
+		logger.Info("ignoring tls route for cluster without valid api endpoint")
+
+		return ctrl.Result{}, nil
+	}
+
+	tlsRoute := gatewayapiv1alpha2.TLSRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dockyardsCluster.Name,
+			Namespace: dockyardsCluster.Namespace,
+		},
+	}
+
+	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &tlsRoute, func() error {
+		tlsRoute.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: dockyardsv1.GroupVersion.String(),
+				Kind:       dockyardsv1.ClusterKind,
+				Name:       dockyardsCluster.Name,
+				UID:        dockyardsCluster.UID,
+			},
+		}
+
+		tlsRoute.Spec.CommonRouteSpec = gatewayapiv1.CommonRouteSpec{
+			ParentRefs: []gatewayapiv1.ParentReference{
+				{
+					Name:      gatewayapiv1.ObjectName("dockyards-public"),
+					Namespace: ptr.To(gatewayapiv1.Namespace("dockyards")),
+				},
+			},
+		}
+
+		tlsRoute.Spec.Hostnames = []gatewayapiv1.Hostname{
+			gatewayapiv1.Hostname(dockyardsCluster.Status.APIEndpoint.Host),
+		}
+
+		tlsRoute.Spec.Rules = []gatewayapiv1alpha2.TLSRouteRule{
+			{
+				BackendRefs: []gatewayapiv1.BackendRef{
+					{
+						BackendObjectReference: gatewayapiv1.BackendObjectReference{
+							Name: gatewayapiv1.ObjectName(dockyardsCluster.Name + "-lb"),
+							Port: ptr.To(gatewayapiv1.PortNumber(6443)),
+						},
+					},
+				},
+			},
+		}
+
+		return nil
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if operationResult != controllerutil.OperationResultNone {
+		logger.Info("reconciled tls route", "result", operationResult)
+	}
+
+	return ctrl.Result{}, nil
+}
+
 func (r *DockyardsClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	scheme := mgr.GetScheme()
 
 	_ = dockyardsv1.AddToScheme(scheme)
+	_ = gatewayapiv1.Install(scheme)
+	_ = gatewayapiv1alpha2.Install(scheme)
 
 	err := ctrl.NewControllerManagedBy(mgr).For(&dockyardsv1.Cluster{}).Complete(r)
 	if err != nil {

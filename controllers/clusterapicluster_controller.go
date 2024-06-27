@@ -6,15 +6,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/utils/ptr"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
@@ -45,78 +42,9 @@ func (r *ClusterAPIClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}()
 
-	result, err = r.reconcileTLSRoute(ctx, &cluster)
-	if err != nil {
-		return result, err
-	}
-
 	result, err = r.reconcileKubevirtCluster(ctx, &cluster)
 	if err != nil {
 		return result, err
-	}
-
-	return ctrl.Result{}, nil
-}
-
-func (r *ClusterAPIClusterReconciler) reconcileTLSRoute(ctx context.Context, cluster *clusterv1.Cluster) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx)
-
-	var service corev1.Service
-	err := r.Get(ctx, client.ObjectKey{Name: "dockyards-public", Namespace: "dockyards"}, &service)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if service.Spec.Type != corev1.ServiceTypeExternalName || service.Spec.ExternalName == "" {
-		logger.Info("ignoring service")
-
-		return ctrl.Result{}, nil
-	}
-
-	externalName := cluster.Namespace + "-" + cluster.Name + "." + service.Spec.ExternalName
-
-	tlsRoute := gatewayapiv1alpha2.TLSRoute{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name,
-			Namespace: cluster.Namespace,
-		},
-	}
-
-	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &tlsRoute, func() error {
-		tlsRoute.Spec.CommonRouteSpec = gatewayapiv1.CommonRouteSpec{
-			ParentRefs: []gatewayapiv1.ParentReference{
-				{
-					Name:      gatewayapiv1.ObjectName("dockyards-public"),
-					Namespace: ptr.To(gatewayapiv1.Namespace("dockyards")),
-				},
-			},
-		}
-
-		tlsRoute.Spec.Hostnames = []gatewayapiv1.Hostname{
-			gatewayapiv1.Hostname(externalName),
-		}
-
-		tlsRoute.Spec.Rules = []gatewayapiv1alpha2.TLSRouteRule{
-			{
-				BackendRefs: []gatewayapiv1.BackendRef{
-					{
-						BackendObjectReference: gatewayapiv1.BackendObjectReference{
-							Name: gatewayapiv1.ObjectName(cluster.Name + "-lb"),
-							Port: ptr.To(gatewayapiv1.PortNumber(6443)),
-						},
-					},
-				},
-			},
-		}
-
-		return nil
-	})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if operationResult != controllerutil.OperationResultNone {
-		logger.Info("reconciled tls route", "result", operationResult)
 	}
 
 	return ctrl.Result{}, nil
@@ -165,8 +93,6 @@ func (r *ClusterAPIClusterReconciler) SetupWithManager(m ctrl.Manager) error {
 	scheme := m.GetScheme()
 
 	_ = clusterv1.AddToScheme(scheme)
-	_ = gatewayapiv1.Install(scheme)
-	_ = gatewayapiv1alpha2.Install(scheme)
 	_ = providerv1.AddToScheme(scheme)
 
 	err := ctrl.NewControllerManagedBy(m).For(&clusterv1.Cluster{}).Complete(r)
