@@ -44,7 +44,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	clusterName, has := dockyardsDeployment.Labels[dockyardsv1.LabelClusterName]
-	if !has || true {
+	if !has {
 		logger.Info("ignoring dockyards deployment without cluster name label")
 
 		return ctrl.Result{}, nil
@@ -106,17 +106,12 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	c := client.ObjectKey{
-		Name:      cluster.Name + "-external",
-		Namespace: cluster.Namespace,
-	}
-
 	err = r.watchClusterServices(ctx, &cluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	remoteClient, err := r.Tracker.GetClient(ctx, c)
+	remoteClient, err := r.Tracker.GetClient(ctx, client.ObjectKeyFromObject(&cluster))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -320,15 +315,9 @@ func (r *DockyardsDeploymentReconciler) watchClusterServices(ctx context.Context
 		return nil
 	}
 
-	c := client.ObjectKey{
-		Name:      cluster.Name + "-external",
-		Namespace: cluster.Namespace,
-	}
-
 	return r.Tracker.Watch(ctx, remote.WatchInput{
-		Name: "deployment-watchServices",
-		//Cluster:      client.ObjectKeyFromObject(cluster),
-		Cluster:      c,
+		Name:         "deployment-watchServices",
+		Cluster:      client.ObjectKeyFromObject(cluster),
 		Watcher:      r.controller,
 		Kind:         &corev1.Service{},
 		EventHandler: handler.EnqueueRequestsFromMapFunc(r.serviceToDeployment),
