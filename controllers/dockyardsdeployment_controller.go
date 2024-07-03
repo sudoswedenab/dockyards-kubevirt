@@ -34,8 +34,9 @@ import (
 
 type DockyardsDeploymentReconciler struct {
 	client.Client
-	Tracker    *remote.ClusterCacheTracker
-	controller controller.Controller
+	Tracker                *remote.ClusterCacheTracker
+	controller             controller.Controller
+	GatewayParentReference gatewayapiv1.ParentReference
 }
 
 func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -83,8 +84,16 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
+	objectKey := client.ObjectKey{
+		Name: string(r.GatewayParentReference.Name),
+	}
+
+	if r.GatewayParentReference.Namespace != nil {
+		objectKey.Namespace = string(*r.GatewayParentReference.Namespace)
+	}
+
 	var gateway gatewayapiv1.Gateway
-	err = r.Get(ctx, client.ObjectKey{Name: "dockyards-public", Namespace: "dockyards"}, &gateway)
+	err = r.Get(ctx, objectKey, &gateway)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
@@ -244,10 +253,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 			}
 
 			httpRoute.Spec.ParentRefs = []gatewayapiv1.ParentReference{
-				{
-					Namespace: ptr.To(gatewayapiv1.Namespace("dockyards")),
-					Name:      gatewayapiv1.ObjectName("dockyards-public"),
-				},
+				r.GatewayParentReference,
 			}
 
 			return nil
@@ -277,10 +283,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 
 			tlsRoute.Spec.CommonRouteSpec = gatewayapiv1.CommonRouteSpec{
 				ParentRefs: []gatewayapiv1.ParentReference{
-					{
-						Name:      gatewayapiv1.ObjectName("dockyards-public"),
-						Namespace: ptr.To(gatewayapiv1.Namespace("dockyards")),
-					},
+					r.GatewayParentReference,
 				},
 			}
 

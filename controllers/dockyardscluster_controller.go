@@ -27,6 +27,7 @@ import (
 
 type DockyardsClusterReconciler struct {
 	client.Client
+	GatewayParentReference gatewayapiv1.ParentReference
 }
 
 func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -250,10 +251,7 @@ func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dock
 
 		tlsRoute.Spec.CommonRouteSpec = gatewayapiv1.CommonRouteSpec{
 			ParentRefs: []gatewayapiv1.ParentReference{
-				{
-					Name:      gatewayapiv1.ObjectName("dockyards-public"),
-					Namespace: ptr.To(gatewayapiv1.Namespace("dockyards")),
-				},
+				r.GatewayParentReference,
 			},
 		}
 
