@@ -24,6 +24,7 @@ import (
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters/status,verbs=patch
 // +kubebuilder:rbac:groups=dockyards.io,resources=deployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=kustomizedeployments,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 
 type DockyardsClusterReconciler struct {
 	client.Client
@@ -102,6 +103,41 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, d
 func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	objectKey := client.ObjectKey{
+		Name: string(r.GatewayParentReference.Name),
+	}
+
+	if r.GatewayParentReference.Namespace != nil {
+		objectKey.Namespace = string(*r.GatewayParentReference.Namespace)
+	}
+
+	var gateway gatewayapiv1.Gateway
+	err := r.Get(ctx, objectKey, &gateway)
+	if client.IgnoreNotFound(err) != nil {
+		return ctrl.Result{}, err
+	}
+
+	if apierrors.IsNotFound(err) {
+		logger.Info("ignoring ingress-nginx for dockyards cluster without gateway")
+
+		return ctrl.Result{}, nil
+	}
+
+	var gatewayIP string
+	for _, address := range gateway.Status.Addresses {
+		if address.Type == nil || *address.Type != gatewayapiv1.IPAddressType {
+			continue
+		}
+
+		gatewayIP = address.Value
+	}
+
+	if gatewayIP == "" {
+		logger.Info("ignoring ingress-nginx for dockyards cluster without gateway ip")
+
+		return ctrl.Result{}, nil
+	}
+
 	name := dockyardsCluster.Name + "-ingress-nginx"
 
 	deployment := dockyardsv1.Deployment{
@@ -173,6 +209,17 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 				"target": map[string]string{
 					"kind": "IngressClass",
 					"name": "nginx",
+				},
+			},
+			{
+				"patch": strings.Join([]string{
+					"- op: add",
+					"  path: /spec/loadBalancerIP",
+					"  value: " + gatewayIP,
+				}, "\n"),
+				"target": map[string]string{
+					"kind": "Service",
+					"name": "ingress-nginx-controller",
 				},
 			},
 		},
