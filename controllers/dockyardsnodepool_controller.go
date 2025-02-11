@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 
 	"bitbucket.org/sudosweden/dockyards-backend/pkg/api/apiutil"
-	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha2"
+	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha3"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
@@ -101,14 +101,19 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	var release dockyardsv1.Release
-	err := r.Get(ctx, client.ObjectKey{Name: dockyardsv1.ReleaseNameCurrentTalosInstaller, Namespace: "dockyards"}, &release)
+	release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
 	if err != nil {
 		return ctrl.Result{}, nil
 	}
 
-	if release.Status.LatestVersion == "" {
-		logger.Info("ignoring machine template without talos installer release")
+	if release == nil {
+		logger.Info("ignoring machine template without default release")
+
+		return ctrl.Result{}, nil
+	}
+
+	if release.Status.LatestURL == nil {
+		logger.Info("ignoring machine template with empty talos installer")
 
 		return ctrl.Result{}, nil
 	}
@@ -142,7 +147,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		storage := dockyardsNodePool.Spec.Resources.Storage()
 		memory := dockyardsNodePool.Spec.Resources.Memory()
 
-		url := "https://github.com/siderolabs/talos/releases/download/" + release.Status.LatestVersion + "/openstack-amd64.raw.xz"
+		url := *release.Status.LatestURL
 
 		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
 			DataVolumeTemplates: []kubevirtv1.DataVolumeTemplateSpec{

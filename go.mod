@@ -3,7 +3,7 @@ module bitbucket.org/sudosweden/dockyards-kubevirt
 go 1.22.4
 
 require (
-	bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20240626090845-405ce0c87eec
+	bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250210124705-46af8f1a3d6e
 	github.com/fluxcd/pkg/runtime v0.46.0
 	github.com/go-logr/logr v1.4.2
 	github.com/siderolabs/cluster-api-bootstrap-provider-talos v0.6.5
@@ -12,7 +12,7 @@ require (
 	k8s.io/api v0.30.2
 	k8s.io/apiextensions-apiserver v0.30.2
 	k8s.io/apimachinery v0.30.2
-	k8s.io/utils v0.0.0-20240502163921-fe8a2dddb1d0
+	k8s.io/utils v0.0.0-20240921022957-49e7df575cb6
 	kubevirt.io/api v1.2.2
 	kubevirt.io/containerized-data-importer-api v1.59.0
 	sigs.k8s.io/cluster-api v1.7.3

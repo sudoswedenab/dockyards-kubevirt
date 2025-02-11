@@ -3,7 +3,7 @@ package controllers
 import (
 	"context"
 
-	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha2"
+	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha3"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -58,7 +58,7 @@ func (r *DockyardsOrganizationReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}()
 
-	conditions.MarkTrue(&dockyardsOrganization, dockyardsv1.ReadyCondition, "KubevirtOrganizationReady", "")
+	conditions.MarkTrue(&dockyardsOrganization, dockyardsv1.ReadyCondition, dockyardsv1.ReadyReason, "")
 
 	return ctrl.Result{}, nil
 }
