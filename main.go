@@ -14,14 +14,17 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func main() {
 	var gatewayName string
 	var gatewayNamespace string
+	var metricsBindAddress string
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
+	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -39,7 +42,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := ctrl.NewManager(cfg, manager.Options{})
+	opts := manager.Options{
+		Metrics: server.Options{
+			BindAddress: metricsBindAddress,
+		},
+	}
+
+	mgr, err := ctrl.NewManager(cfg, opts)
 	if err != nil {
 		slogr.Error(err, "error creating manager")
 
