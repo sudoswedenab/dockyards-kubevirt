@@ -280,6 +280,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 			APIVersion: providerv1.GroupVersion.String(),
 			Kind:       "KubevirtMachineTemplate",
 			Name:       dockyardsNodePool.Name,
+			Namespace:  dockyardsNodePool.Namespace,
 		}
 
 		talosControlPlane.Spec.ControlPlaneConfig = controlplanev1.ControlPlaneConfig{
