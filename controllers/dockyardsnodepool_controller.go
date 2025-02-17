@@ -165,7 +165,6 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 									corev1.ResourceStorage: *storage,
 								},
 							},
-							StorageClassName: ptr.To("rook-cephfs"),
 						},
 						Source: &cdiv1.DataVolumeSource{
 							HTTP: &cdiv1.DataVolumeSourceHTTP{
