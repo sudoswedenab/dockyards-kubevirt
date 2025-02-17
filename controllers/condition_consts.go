@@ -6,6 +6,8 @@ const (
 
 const (
 	TalosControlPlaneReconciledCondition = "TalosControlPlaneReconciled"
+
+	WaitingForTLSRouteReason = "WaitingForTLSRoute"
 )
 
 const (

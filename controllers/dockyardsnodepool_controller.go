@@ -259,7 +259,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	}
 
 	if apierrors.IsNotFound(err) {
-		logger.Info("ignoring talos control plane without tls route")
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, WaitingForTLSRouteReason, "")
 
 		return ctrl.Result{}, nil
 	}
