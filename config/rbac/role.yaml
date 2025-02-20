@@ -80,20 +80,8 @@ rules:
   resources:
   - deployments
   verbs:
-  - create
   - get
   - list
-  - patch
-  - watch
-- apiGroups:
-  - dockyards.io
-  resources:
-  - kustomizedeployments
-  verbs:
-  - create
-  - get
-  - list
-  - patch
   - watch
 - apiGroups:
   - dockyards.io
@@ -144,6 +132,16 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - dockyards.io
+  resources:
+  - workloads
+  verbs:
+  - create
+  - get
+  - list
+  - patch
   - watch
 - apiGroups:
   - gateway.networking.k8s.io

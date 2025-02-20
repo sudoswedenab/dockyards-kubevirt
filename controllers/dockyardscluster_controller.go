@@ -2,11 +2,12 @@ package controllers
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
 
 	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha3"
 	"github.com/fluxcd/pkg/runtime/patch"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -16,19 +17,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
-	"sigs.k8s.io/yaml"
 )
 
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters/status,verbs=patch
-// +kubebuilder:rbac:groups=dockyards.io,resources=deployments,verbs=create;get;list;patch;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=kustomizedeployments,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=workloads,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 
 type DockyardsClusterReconciler struct {
 	client.Client
+
 	GatewayParentReference gatewayapiv1.ParentReference
+	DockyardsNamespace     string
 }
 
 func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -78,7 +79,7 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return result, err
 	}
 
-	result, err = r.reconcileIngressNginx(ctx, &dockyardsCluster)
+	result, err = r.reconcileIngressNginx(ctx, &dockyardsCluster, &gateway)
 	if err != nil {
 		return result, err
 	}
@@ -123,28 +124,8 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, d
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
-
-	objectKey := client.ObjectKey{
-		Name: string(r.GatewayParentReference.Name),
-	}
-
-	if r.GatewayParentReference.Namespace != nil {
-		objectKey.Namespace = string(*r.GatewayParentReference.Namespace)
-	}
-
-	var gateway gatewayapiv1.Gateway
-	err := r.Get(ctx, objectKey, &gateway)
-	if client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if apierrors.IsNotFound(err) {
-		logger.Info("ignoring ingress-nginx for dockyards cluster without gateway")
-
-		return ctrl.Result{}, nil
-	}
 
 	var gatewayIP string
 	for _, address := range gateway.Status.Addresses {
@@ -163,15 +144,24 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 
 	name := dockyardsCluster.Name + "-ingress-nginx"
 
-	deployment := dockyardsv1.Deployment{
+	raw, err := json.Marshal(map[string]any{
+		"service": map[string]any{
+			"loadBalancerIP": gatewayIP,
+		},
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	workload := dockyardsv1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: dockyardsCluster.Namespace,
 		},
 	}
 
-	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &deployment, func() error {
-		deployment.OwnerReferences = []metav1.OwnerReference{
+	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &workload, func() error {
+		workload.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: dockyardsv1.GroupVersion.String(),
 				Kind:       dockyardsv1.ClusterKind,
@@ -180,106 +170,22 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 			},
 		}
 
-		deployment.Spec.ClusterComponent = true
-		deployment.Spec.TargetNamespace = "ingress-nginx"
+		workload.Spec.ClusterComponent = true
+		workload.Spec.Provenience = dockyardsv1.ProvenienceDockyards
+		workload.Spec.TargetNamespace = "ingress-nginx"
 
-		if deployment.Labels == nil {
-			deployment.Labels = make(map[string]string)
+		workload.Labels = map[string]string{
+			dockyardsv1.LabelClusterName: dockyardsCluster.Name,
 		}
 
-		deployment.Labels[dockyardsv1.LabelClusterName] = dockyardsCluster.Name
-
-		deployment.Spec.DeploymentRefs = []corev1.TypedLocalObjectReference{
-			{
-				APIGroup: &dockyardsv1.GroupVersion.Group,
-				Kind:     dockyardsv1.KustomizeDeploymentKind,
-				Name:     name,
-			},
+		workload.Spec.WorkloadTemplateRef = &corev1.TypedObjectReference{
+			Kind:      dockyardsv1.WorkloadTemplateKind,
+			Name:      "ingress-nginx",
+			Namespace: &r.DockyardsNamespace,
 		}
 
-		return nil
-	})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	logger.Info("reconciled deployment", "result", operationResult)
-
-	kustomizationYAML, err := yaml.Marshal(map[string]any{
-		"apiVersion": "kustomize.config.k8s.io/v1beta1",
-		"kind":       "Kustomization",
-		"patches": []map[string]any{
-			{
-				"patch": strings.Join([]string{
-					"- op: replace",
-					"  path: /kind",
-					"  value: DaemonSet",
-				}, "\n"),
-				"target": map[string]string{
-					"group":   "apps",
-					"version": "v1",
-					"kind":    "Deployment",
-					"name":    "ingress-nginx-controller",
-				},
-			},
-			{
-				"patch": strings.Join([]string{
-					"- op: add",
-					"  path: /metadata/annotations",
-					"  value:",
-					"    ingressclass.kubernetes.io/is-default-class: \"true\"",
-				}, "\n"),
-				"target": map[string]string{
-					"kind": "IngressClass",
-					"name": "nginx",
-				},
-			},
-			{
-				"patch": strings.Join([]string{
-					"- op: add",
-					"  path: /spec/loadBalancerIP",
-					"  value: " + gatewayIP,
-				}, "\n"),
-				"target": map[string]string{
-					"kind": "Service",
-					"name": "ingress-nginx-controller",
-				},
-			},
-		},
-		"resources": []string{
-			"github.com/kubernetes/ingress-nginx/deploy/static/provider/cloud?ref=controller-v1.10.1",
-		},
-	})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	kustomizeDeployment := dockyardsv1.KustomizeDeployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: dockyardsCluster.Namespace,
-		},
-	}
-
-	operationResult, err = controllerutil.CreateOrPatch(ctx, r.Client, &kustomizeDeployment, func() error {
-		kustomizeDeployment.OwnerReferences = []metav1.OwnerReference{
-			{
-				APIVersion: dockyardsv1.GroupVersion.String(),
-				Kind:       dockyardsv1.DeploymentKind,
-				Name:       deployment.Name,
-				UID:        deployment.UID,
-			},
-		}
-
-		if kustomizeDeployment.Labels == nil {
-			kustomizeDeployment.Labels = make(map[string]string)
-		}
-
-		kustomizeDeployment.Labels[dockyardsv1.LabelClusterName] = dockyardsCluster.Name
-		kustomizeDeployment.Labels[dockyardsv1.LabelDeploymentName] = deployment.Name
-
-		kustomizeDeployment.Spec.Kustomize = map[string][]byte{
-			"kustomization.yaml": kustomizationYAML,
+		workload.Spec.Input = &apiextensionsv1.JSON{
+			Raw: raw,
 		}
 
 		return nil
@@ -288,7 +194,7 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("reconciled kustomize deployment", "result", operationResult)
+	logger.Info("reconciled ingress-nginx workload", "result", operationResult)
 
 	return ctrl.Result{}, nil
 }
