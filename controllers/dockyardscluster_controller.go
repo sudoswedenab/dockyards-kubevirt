@@ -32,6 +32,8 @@ type DockyardsClusterReconciler struct {
 }
 
 func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
+	logger := ctrl.LoggerFrom(ctx)
+
 	var dockyardsCluster dockyardsv1.Cluster
 	err := r.Get(ctx, req.NamespacedName, &dockyardsCluster)
 	if err != nil {
@@ -51,7 +53,27 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}()
 
-	result, err = r.reconcileAPIEndpoint(ctx, &dockyardsCluster)
+	objectKey := client.ObjectKey{
+		Name: string(r.GatewayParentReference.Name),
+	}
+
+	if r.GatewayParentReference.Namespace != nil {
+		objectKey.Namespace = string(*r.GatewayParentReference.Namespace)
+	}
+
+	var gateway gatewayapiv1.Gateway
+	err = r.Get(ctx, objectKey, &gateway)
+	if client.IgnoreNotFound(err) != nil {
+		return ctrl.Result{}, err
+	}
+
+	if apierrors.IsNotFound(err) {
+		logger.Info("ignoring cluster without gateway")
+
+		return ctrl.Result{}, nil
+	}
+
+	result, err = r.reconcileAPIEndpoint(ctx, &dockyardsCluster, &gateway)
 	if err != nil {
 		return result, err
 	}
@@ -69,28 +91,29 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	var service corev1.Service
-	err := r.Get(ctx, client.ObjectKey{Name: "dockyards-public", Namespace: "dockyards"}, &service)
-	if client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
+	var hostname string
+	for _, listener := range gateway.Spec.Listeners {
+		if listener.Name != "dockyards-https" {
+			continue
+		}
+
+		if listener.Hostname == nil {
+			continue
+		}
+
+		hostname = string(*listener.Hostname)
 	}
 
-	if apierrors.IsNotFound(err) {
-		logger.Info("ignoring cluster without public service")
+	if hostname == "" {
+		logger.Info("ignoring api endpoint for gateway without hostname")
 
 		return ctrl.Result{}, nil
 	}
 
-	if service.Spec.Type != corev1.ServiceTypeExternalName || service.Spec.ExternalName == "" {
-		logger.Info("ignoring service")
-
-		return ctrl.Result{}, nil
-	}
-
-	host := dockyardsCluster.Namespace + "-" + dockyardsCluster.Name + "." + service.Spec.ExternalName
+	host := dockyardsCluster.Namespace + "-" + dockyardsCluster.Name + "." + hostname
 
 	dockyardsCluster.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
 		Host: host,
