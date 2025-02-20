@@ -22,9 +22,11 @@ func main() {
 	var gatewayName string
 	var gatewayNamespace string
 	var metricsBindAddress string
+	var dockyardsNamespace string
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
+	pflag.StringVar(&dockyardsNamespace, "dockyards-namespace", "dockyards-system", "dockyards namespace")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -97,6 +99,7 @@ func main() {
 	err = (&controllers.DockyardsClusterReconciler{
 		Client:                 mgr.GetClient(),
 		GatewayParentReference: gatewayParentReference,
+		DockyardsNamespace:     dockyardsNamespace,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards cluster reconciler")
