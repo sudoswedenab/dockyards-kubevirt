@@ -107,7 +107,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = (&controllers.DockyardsDeploymentReconciler{
+	err = (&controllers.DockyardsWorkloadReconciler{
 		Client:                 mgr.GetClient(),
 		Tracker:                tracker,
 		GatewayParentReference: gatewayParentReference,

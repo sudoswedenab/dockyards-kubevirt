@@ -27,42 +27,43 @@ import (
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tlsroutes,verbs=create;get;list;patch;watch
 
-type DockyardsDeploymentReconciler struct {
+type DockyardsWorkloadReconciler struct {
 	client.Client
+
 	Tracker                *remote.ClusterCacheTracker
 	controller             controller.Controller
 	GatewayParentReference gatewayapiv1.ParentReference
 }
 
-func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	var dockyardsDeployment dockyardsv1.Deployment
-	err := r.Get(ctx, req.NamespacedName, &dockyardsDeployment)
+	var dockyardsWorkload dockyardsv1.Workload
+	err := r.Get(ctx, req.NamespacedName, &dockyardsWorkload)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	clusterName, has := dockyardsDeployment.Labels[dockyardsv1.LabelClusterName]
+	clusterName, has := dockyardsWorkload.Labels[dockyardsv1.LabelClusterName]
 	if !has {
-		logger.Info("ignoring dockyards deployment without cluster name label")
+		logger.Info("ignoring dockyards workload without cluster name label")
 
 		return ctrl.Result{}, nil
 	}
 
 	var cluster clusterv1.Cluster
-	err = r.Get(ctx, client.ObjectKey{Name: clusterName, Namespace: dockyardsDeployment.Namespace}, &cluster)
+	err = r.Get(ctx, client.ObjectKey{Name: clusterName, Namespace: dockyardsWorkload.Namespace}, &cluster)
 	if client.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
 
 	if apierrors.IsNotFound(err) {
-		logger.Info("ignoring dockyards deployment without cluster")
+		logger.Info("ignoring dockyards workload without cluster")
 
 		return ctrl.Result{}, nil
 	}
@@ -73,13 +74,13 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, &dockyardsDeployment)
+	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, &dockyardsWorkload)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	if ownerCluster == nil {
-		logger.Info("ignoring dockyards deployment without dockyards cluster")
+		logger.Info("ignoring dockyards workload without dockyards cluster")
 
 		return ctrl.Result{}, nil
 	}
@@ -99,7 +100,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	if apierrors.IsNotFound(err) {
-		logger.Info("ignoring dockyards deployment without gateway")
+		logger.Info("ignoring dockyards workload without gateway")
 
 		return ctrl.Result{}, nil
 	}
@@ -114,7 +115,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	if gatewayIP == "" {
-		logger.Info("ignoring dockyards deployment without gateway ip")
+		logger.Info("ignoring dockyards workload without gateway ip")
 
 		return ctrl.Result{}, nil
 	}
@@ -130,7 +131,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	matchingLabels := client.MatchingLabels{
-		dockyardsv1.LabelDeploymentName: dockyardsDeployment.Name,
+		dockyardsv1.LabelWorkloadName: dockyardsWorkload.Name,
 	}
 
 	var serviceList corev1.ServiceList
@@ -165,12 +166,12 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 			return ctrl.Result{}, nil
 		}
 
-		serviceName := dockyardsDeployment.Name + "-" + remoteService.Name
+		serviceName := dockyardsWorkload.Name + "-" + remoteService.Name
 
 		service := corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      serviceName,
-				Namespace: dockyardsDeployment.Namespace,
+				Namespace: dockyardsWorkload.Namespace,
 			},
 		}
 
@@ -187,9 +188,9 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 			service.OwnerReferences = []metav1.OwnerReference{
 				{
 					APIVersion: dockyardsv1.GroupVersion.String(),
-					Kind:       dockyardsv1.DeploymentKind,
-					Name:       dockyardsDeployment.Name,
-					UID:        dockyardsDeployment.UID,
+					Kind:       dockyardsv1.WorkloadKind,
+					Name:       dockyardsWorkload.Name,
+					UID:        dockyardsWorkload.UID,
 				},
 			}
 
@@ -221,7 +222,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		httpRoute := gatewayapiv1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      serviceName,
-				Namespace: dockyardsDeployment.Namespace,
+				Namespace: dockyardsWorkload.Namespace,
 			},
 		}
 
@@ -229,9 +230,9 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 			httpRoute.OwnerReferences = []metav1.OwnerReference{
 				{
 					APIVersion: dockyardsv1.GroupVersion.String(),
-					Kind:       dockyardsv1.DeploymentKind,
-					Name:       dockyardsDeployment.Name,
-					UID:        dockyardsDeployment.UID,
+					Kind:       dockyardsv1.WorkloadKind,
+					Name:       dockyardsWorkload.Name,
+					UID:        dockyardsWorkload.UID,
 				},
 			}
 
@@ -267,7 +268,7 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		tlsRoute := gatewayapiv1alpha2.TLSRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      serviceName,
-				Namespace: dockyardsDeployment.Namespace,
+				Namespace: dockyardsWorkload.Namespace,
 			},
 		}
 
@@ -275,9 +276,9 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 			tlsRoute.OwnerReferences = []metav1.OwnerReference{
 				{
 					APIVersion: dockyardsv1.GroupVersion.String(),
-					Kind:       dockyardsv1.DeploymentKind,
-					Name:       dockyardsDeployment.Name,
-					UID:        dockyardsDeployment.UID,
+					Kind:       dockyardsv1.WorkloadKind,
+					Name:       dockyardsWorkload.Name,
+					UID:        dockyardsWorkload.UID,
 				},
 			}
 
@@ -317,21 +318,21 @@ func (r *DockyardsDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsDeploymentReconciler) watchClusterServices(ctx context.Context, cluster *clusterv1.Cluster) error {
+func (r *DockyardsWorkloadReconciler) watchClusterServices(ctx context.Context, cluster *clusterv1.Cluster) error {
 	if r.Tracker == nil {
 		return nil
 	}
 
 	return r.Tracker.Watch(ctx, remote.WatchInput{
-		Name:         "deployment-watchServices",
+		Name:         "workload-watchServices",
 		Cluster:      client.ObjectKeyFromObject(cluster),
 		Watcher:      r.controller,
 		Kind:         &corev1.Service{},
-		EventHandler: handler.EnqueueRequestsFromMapFunc(r.serviceToDeployment),
+		EventHandler: handler.EnqueueRequestsFromMapFunc(r.serviceToWorkload),
 	})
 }
 
-func (r *DockyardsDeploymentReconciler) serviceToDeployment(ctx context.Context, obj client.Object) []ctrl.Request {
+func (r *DockyardsWorkloadReconciler) serviceToWorkload(ctx context.Context, obj client.Object) []ctrl.Request {
 	logger := ctrl.LoggerFrom(ctx)
 
 	service, ok := obj.(*corev1.Service)
@@ -347,14 +348,14 @@ func (r *DockyardsDeploymentReconciler) serviceToDeployment(ctx context.Context,
 
 	logger.Info("service", "type", service.Spec.Type, "serviceName", service.Name)
 
-	deploymentName, has := service.Labels[dockyardsv1.LabelDeploymentName]
+	workloadName, has := service.Labels[dockyardsv1.LabelWorkloadName]
 	if !has {
-		logger.Info("ignoring service without deployment name label", "serviceName", service.Name)
+		logger.Info("ignoring service without workload name label", "serviceName", service.Name)
 
 		return nil
 	}
 
-	deploymentNamespace, has := service.Labels["kustomize.toolkit.fluxcd.io/namespace"]
+	workloadNamespace, has := service.Labels["kustomize.toolkit.fluxcd.io/namespace"]
 	if !has {
 		logger.Info("ignoring service without kustomize namespace label", "serviceName", service.Name)
 
@@ -364,19 +365,19 @@ func (r *DockyardsDeploymentReconciler) serviceToDeployment(ctx context.Context,
 	return []ctrl.Request{
 		{
 			NamespacedName: client.ObjectKey{
-				Name:      deploymentName,
-				Namespace: deploymentNamespace,
+				Name:      workloadName,
+				Namespace: workloadNamespace,
 			},
 		},
 	}
 }
 
-func (r *DockyardsDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *DockyardsWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	scheme := mgr.GetScheme()
 
 	_ = dockyardsv1.AddToScheme(scheme)
 
-	c, err := ctrl.NewControllerManagedBy(mgr).For(&dockyardsv1.Deployment{}).Build(r)
+	c, err := ctrl.NewControllerManagedBy(mgr).For(&dockyardsv1.Workload{}).Build(r)
 	if err != nil {
 		return err
 	}
