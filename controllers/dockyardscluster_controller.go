@@ -225,6 +225,10 @@ func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dock
 			},
 		}
 
+		tlsRoute.Labels = map[string]string{
+			dockyardsv1.LabelClusterName: dockyardsCluster.Name,
+		}
+
 		tlsRoute.Spec.CommonRouteSpec = gatewayapiv1.CommonRouteSpec{
 			ParentRefs: []gatewayapiv1.ParentReference{
 				r.GatewayParentReference,
