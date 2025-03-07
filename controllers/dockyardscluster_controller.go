@@ -272,7 +272,10 @@ func (r *DockyardsClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	_ = gatewayapiv1.Install(scheme)
 	_ = gatewayapiv1alpha2.Install(scheme)
 
-	err := ctrl.NewControllerManagedBy(mgr).For(&dockyardsv1.Cluster{}).Complete(r)
+	err := ctrl.NewControllerManagedBy(mgr).
+		Named("dockyards/cluster").
+		For(&dockyardsv1.Cluster{}).
+		Complete(r)
 	if err != nil {
 		return err
 	}
