@@ -1,6 +1,6 @@
 module bitbucket.org/sudosweden/dockyards-kubevirt
 
-go 1.22.4
+go 1.24.1
 
 require (
 	bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250210124705-46af8f1a3d6e
@@ -19,7 +19,6 @@ require (
 	sigs.k8s.io/cluster-api v1.7.3
 	sigs.k8s.io/cluster-api-provider-kubevirt v0.1.8
 	sigs.k8s.io/controller-runtime v0.17.5
-	sigs.k8s.io/controller-tools v0.14.0
 	sigs.k8s.io/gateway-api v1.1.0-rc1
 )
 
@@ -83,9 +82,12 @@ require (
 	k8s.io/klog/v2 v2.120.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240423202451-8948a665c108 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 // indirect
+	sigs.k8s.io/controller-tools v0.14.0 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
 replace k8s.io/client-go => k8s.io/client-go v0.29.2
+
+tool sigs.k8s.io/controller-tools/cmd/controller-gen
