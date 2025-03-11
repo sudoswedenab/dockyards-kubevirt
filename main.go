@@ -125,6 +125,14 @@ func main() {
 		slogr.Error(err, "error creating dockyards node reconciler")
 	}
 
+	err = (&controllers.DockyardsReleaseReconciler{
+		Client:                     mgr.GetClient(),
+		DataVolumeStorageClassName: &dataVolumeStorageClassName,
+	}).SetupWithManager(mgr)
+	if err != nil {
+		slogr.Error(err, "error creating dockyards release reconciler")
+	}
+
 	err = mgr.Start(ctx)
 	if err != nil {
 		slogr.Error(err, "error starting manager")
