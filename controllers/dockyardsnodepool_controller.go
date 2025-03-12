@@ -27,18 +27,21 @@ import (
 )
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datavolumes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=nodepools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=nodepools/status,verbs=patch
+// +kubebuilder:rbac:groups=dockyards.io,resources=nodepools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=releases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tlsroutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachinetemplates,verbs=create;get;list;patch;watch
 
 type DockyardsNodePoolReconciler struct {
 	client.Client
+
+	DataVolumeStorageClassName *string
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -112,10 +115,16 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		return ctrl.Result{}, nil
 	}
 
-	if release.Status.LatestURL == nil {
-		logger.Info("ignoring machine template with empty talos installer")
+	var dataVolume cdiv1.DataVolume
+	err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataVolume)
+	if apierrors.IsNotFound(err) {
+		conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataVolumeReason, "")
 
 		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	machineTemplate := providerv1.KubevirtMachineTemplate{
@@ -147,7 +156,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		storage := dockyardsNodePool.Spec.Resources.Storage()
 		memory := dockyardsNodePool.Spec.Resources.Memory()
 
-		url := *release.Status.LatestURL
+		storageClassName := r.DataVolumeStorageClassName
 
 		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
 			DataVolumeTemplates: []kubevirtv1.DataVolumeTemplateSpec{
@@ -165,10 +174,13 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 									corev1.ResourceStorage: *storage,
 								},
 							},
+							StorageClassName: storageClassName,
+							VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
 						},
 						Source: &cdiv1.DataVolumeSource{
-							HTTP: &cdiv1.DataVolumeSourceHTTP{
-								URL: url,
+							PVC: &cdiv1.DataVolumeSourcePVC{
+								Name:      dataVolume.Status.ClaimName,
+								Namespace: dataVolume.Namespace,
 							},
 						},
 					},

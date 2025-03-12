@@ -5,6 +5,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
@@ -12,11 +13,13 @@ var (
 	DockyardsNodePool       = mockCRD(dockyardsv1.NodePoolKind, "nodepools", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 	DockyardsRelease        = mockCRD(dockyardsv1.ReleaseKind, "releases", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 	KubevirtMachineTemplate = mockCRD("KubevirtMachineTemplate", "kubevirtmachinetemplates", providerv1.GroupVersion.Group, providerv1.GroupVersion.Version)
+	CDIDataVolume           = mockCRD("DataVolume", "datavolumes", cdiv1.CDIGroupVersionKind.Group, cdiv1.CDIGroupVersionKind.Version)
 
 	CRDs = []*apiextensionsv1.CustomResourceDefinition{
 		DockyardsNodePool,
 		DockyardsRelease,
 		KubevirtMachineTemplate,
+		CDIDataVolume,
 	}
 )
 

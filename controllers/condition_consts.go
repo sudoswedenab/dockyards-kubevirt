@@ -2,6 +2,8 @@ package controllers
 
 const (
 	KubevirtMachineTemplateReconciledCondition = "KubevirtMachineTemplateReconciled"
+
+	WaitingForDataVolumeReason = "WaitingForDataVolume"
 )
 
 const (

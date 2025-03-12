@@ -52,6 +52,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 
+	_ = cdiv1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 	_ = dockyardsv1.AddToScheme(scheme)
 	_ = providerv1.AddToScheme(scheme)
@@ -90,11 +91,30 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	patch := client.MergeFrom(release.DeepCopy())
+	dataVolumeStorageClassName := "test-block"
 
-	release.Status.LatestURL = ptr.To("http://localhost:1234/testing/openstack-amd64.raw.xz")
+	dataVolume := cdiv1.DataVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+		},
+		Spec: cdiv1.DataVolumeSpec{
+			PVC: &corev1.PersistentVolumeClaimSpec{
+				VolumeMode: ptr.To(corev1.PersistentVolumeBlock),
+			},
+		},
+	}
 
-	err = c.Status().Patch(ctx, &release, patch)
+	err = c.Create(ctx, &dataVolume)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	patch := client.MergeFrom(dataVolume.DeepCopy())
+
+	dataVolume.Status.ClaimName = release.Name
+
+	err = c.Status().Patch(ctx, &dataVolume, patch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +143,8 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	}()
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client: mgr.GetClient(),
+		Client:                     mgr.GetClient(),
+		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 	}
 
 	t.Run("test resources", func(t *testing.T) {
@@ -240,8 +261,9 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 										},
 										Spec: cdiv1.DataVolumeSpec{
 											Source: &cdiv1.DataVolumeSource{
-												HTTP: &cdiv1.DataVolumeSourceHTTP{
-													URL: *release.Status.LatestURL,
+												PVC: &cdiv1.DataVolumeSourcePVC{
+													Name:      dataVolume.Status.ClaimName,
+													Namespace: dataVolume.Namespace,
 												},
 											},
 											PVC: &corev1.PersistentVolumeClaimSpec{
@@ -253,6 +275,8 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 														corev1.ResourceStorage: resource.MustParse("8G"),
 													},
 												},
+												StorageClassName: &dataVolumeStorageClassName,
+												VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
 											},
 										},
 									},

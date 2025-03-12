@@ -81,7 +81,8 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsNodePoolReconciler{
-		Client: mgr.GetClient(),
+		Client:                     mgr.GetClient(),
+		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")

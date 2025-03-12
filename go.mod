@@ -3,7 +3,7 @@ module bitbucket.org/sudosweden/dockyards-kubevirt
 go 1.24.1
 
 require (
-	bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250210124705-46af8f1a3d6e
+	bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250306093141-4fc429abeeb9
 	github.com/fluxcd/pkg/runtime v0.46.0
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.6.0
