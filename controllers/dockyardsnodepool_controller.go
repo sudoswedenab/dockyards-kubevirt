@@ -158,35 +158,108 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 
 		storageClassName := r.DataVolumeStorageClassName
 
-		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
-			DataVolumeTemplates: []kubevirtv1.DataVolumeTemplateSpec{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "boot",
-					},
-					Spec: cdiv1.DataVolumeSpec{
-						PVC: &corev1.PersistentVolumeClaimSpec{
-							AccessModes: []corev1.PersistentVolumeAccessMode{
-								corev1.ReadWriteMany,
-							},
-							Resources: corev1.VolumeResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceStorage: *storage,
-								},
-							},
-							StorageClassName: storageClassName,
-							VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
+		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "boot",
+				},
+				Spec: cdiv1.DataVolumeSpec{
+					PVC: &corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteMany,
 						},
-						Source: &cdiv1.DataVolumeSource{
-							PVC: &cdiv1.DataVolumeSourcePVC{
-								Name:      dataVolume.Status.ClaimName,
-								Namespace: dataVolume.Namespace,
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: *storage,
 							},
+						},
+						StorageClassName: storageClassName,
+						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
+					},
+					Source: &cdiv1.DataVolumeSource{
+						PVC: &cdiv1.DataVolumeSourcePVC{
+							Name:      dataVolume.Status.ClaimName,
+							Namespace: dataVolume.Namespace,
 						},
 					},
 				},
 			},
-			RunStrategy: ptr.To(kubevirtv1.RunStrategyAlways),
+		}
+
+		disks := []kubevirtv1.Disk{
+			{
+				DiskDevice: kubevirtv1.DiskDevice{
+					Disk: &kubevirtv1.DiskTarget{
+						Bus: kubevirtv1.DiskBusVirtio,
+					},
+				},
+				Name: "boot",
+			},
+		}
+
+		volumes := []kubevirtv1.Volume{
+			{
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: "boot",
+					},
+				},
+				Name: "boot",
+			},
+		}
+
+		for _, storageResource := range dockyardsNodePool.Spec.StorageResources {
+			dataVolumeTemplate := kubevirtv1.DataVolumeTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: storageResource.Name,
+				},
+				Spec: cdiv1.DataVolumeSpec{
+					Source: &cdiv1.DataVolumeSource{
+						Blank: &cdiv1.DataVolumeBlankImage{},
+					},
+					PVC: &corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteMany,
+						},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: storageResource.Quantity,
+							},
+						},
+						StorageClassName: storageClassName,
+						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
+					},
+				},
+			}
+
+			dataVolumeTemplates = append(dataVolumeTemplates, dataVolumeTemplate)
+
+			disk := kubevirtv1.Disk{
+				DiskDevice: kubevirtv1.DiskDevice{
+					Disk: &kubevirtv1.DiskTarget{
+						Bus: kubevirtv1.DiskBusVirtio,
+					},
+				},
+				Name: storageResource.Name,
+			}
+
+			disks = append(disks, disk)
+
+			volume := kubevirtv1.Volume{
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: storageResource.Name,
+					},
+				},
+				Name: storageResource.Name,
+			}
+
+			volumes = append(volumes, volume)
+		}
+
+		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
+			DataVolumeTemplates: dataVolumeTemplates,
+			RunStrategy:         ptr.To(kubevirtv1.RunStrategyAlways),
 			Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{
 				Spec: kubevirtv1.VirtualMachineInstanceSpec{
 					Domain: kubevirtv1.DomainSpec{
@@ -194,16 +267,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 							Cores: uint32(cpu.Value()),
 						},
 						Devices: kubevirtv1.Devices{
-							Disks: []kubevirtv1.Disk{
-								{
-									DiskDevice: kubevirtv1.DiskDevice{
-										Disk: &kubevirtv1.DiskTarget{
-											Bus: kubevirtv1.DiskBusVirtio,
-										},
-									},
-									Name: "boot",
-								},
-							},
+							Disks: disks,
 							Interfaces: []kubevirtv1.Interface{
 								{
 									Name: "default",
@@ -218,16 +282,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 						},
 					},
 					EvictionStrategy: ptr.To(kubevirtv1.EvictionStrategyLiveMigrate),
-					Volumes: []kubevirtv1.Volume{
-						{
-							VolumeSource: kubevirtv1.VolumeSource{
-								DataVolume: &kubevirtv1.DataVolumeSource{
-									Name: "boot",
-								},
-							},
-							Name: "boot",
-						},
-					},
+					Volumes:          volumes,
 					Networks: []kubevirtv1.Network{
 						{
 							Name: "default",

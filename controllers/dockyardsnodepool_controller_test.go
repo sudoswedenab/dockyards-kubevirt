@@ -295,4 +295,203 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
 		}
 	})
+
+	t.Run("test storage resources", func(t *testing.T) {
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.NodePoolSpec{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU:     resource.MustParse("2"),
+					corev1.ResourceMemory:  resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8G"),
+				},
+				StorageResources: []dockyardsv1.NodePoolStorageResource{
+					{
+						Name:     "test",
+						Quantity: resource.MustParse("10Gi"),
+					},
+				},
+			},
+		}
+
+		err := c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		disks := []kubevirtv1.Disk{
+			{
+				DiskDevice: kubevirtv1.DiskDevice{
+					Disk: &kubevirtv1.DiskTarget{
+						Bus: kubevirtv1.DiskBusVirtio,
+					},
+				},
+				Name: "boot",
+			},
+			{
+				DiskDevice: kubevirtv1.DiskDevice{
+					Disk: &kubevirtv1.DiskTarget{
+						Bus: kubevirtv1.DiskBusVirtio,
+					},
+				},
+				Name: "test",
+			},
+		}
+
+		volumes := []kubevirtv1.Volume{
+			{
+				Name: "boot",
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: "boot",
+					},
+				},
+			},
+			{
+				Name: "test",
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: "test",
+					},
+				},
+			},
+		}
+
+		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "boot",
+				},
+				Spec: cdiv1.DataVolumeSpec{
+					Source: &cdiv1.DataVolumeSource{
+						PVC: &cdiv1.DataVolumeSourcePVC{
+							Name:      dataVolume.Status.ClaimName,
+							Namespace: dataVolume.Namespace,
+						},
+					},
+					PVC: &corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteMany,
+						},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("8G"),
+							},
+						},
+						StorageClassName: &dataVolumeStorageClassName,
+						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+				},
+				Spec: cdiv1.DataVolumeSpec{
+					Source: &cdiv1.DataVolumeSource{
+						Blank: &cdiv1.DataVolumeBlankImage{},
+					},
+					PVC: &corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteMany,
+						},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("10Gi"),
+							},
+						},
+						StorageClassName: &dataVolumeStorageClassName,
+						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
+					},
+				},
+			},
+		}
+
+		expected := providerv1.KubevirtMachineTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      nodePool.Name,
+				Namespace: nodePool.Namespace,
+				UID:       actual.UID,
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: dockyardsv1.GroupVersion.String(),
+						Kind:       dockyardsv1.NodePoolKind,
+						Name:       nodePool.Name,
+						UID:        nodePool.UID,
+					},
+				},
+				//
+				CreationTimestamp: actual.CreationTimestamp,
+				Generation:        actual.Generation,
+				ManagedFields:     actual.ManagedFields,
+				ResourceVersion:   actual.ResourceVersion,
+			},
+			Spec: providerv1.KubevirtMachineTemplateSpec{
+				Template: providerv1.KubevirtMachineTemplateResource{
+					Spec: providerv1.KubevirtMachineSpec{
+						VirtualMachineTemplate: providerv1.VirtualMachineTemplateSpec{
+							Spec: kubevirtv1.VirtualMachineSpec{
+								RunStrategy: ptr.To(kubevirtv1.RunStrategyAlways),
+								Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{
+									Spec: kubevirtv1.VirtualMachineInstanceSpec{
+										Domain: kubevirtv1.DomainSpec{
+											CPU: &kubevirtv1.CPU{
+												Cores: 2,
+											},
+											Devices: kubevirtv1.Devices{
+												Disks: disks,
+												Interfaces: []kubevirtv1.Interface{
+													{
+														Name: "default",
+														InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
+															Bridge: &kubevirtv1.InterfaceBridge{},
+														},
+													},
+												},
+											},
+											Memory: &kubevirtv1.Memory{
+												Guest: ptr.To(resource.MustParse("2Gi")),
+											},
+										},
+										EvictionStrategy: ptr.To(kubevirtv1.EvictionStrategyLiveMigrate),
+										Volumes:          volumes,
+										Networks: []kubevirtv1.Network{
+											{
+												Name: "default",
+												NetworkSource: kubevirtv1.NetworkSource{
+													Pod: &kubevirtv1.PodNetwork{},
+												},
+											},
+										},
+									},
+								},
+								DataVolumeTemplates: dataVolumeTemplates,
+							},
+						},
+						BootstrapCheckSpec: providerv1.VirtualMachineBootstrapCheckSpec{
+							CheckStrategy: "none",
+						},
+					},
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
 }
