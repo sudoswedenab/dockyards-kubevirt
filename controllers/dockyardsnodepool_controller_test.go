@@ -93,28 +93,22 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 	dataVolumeStorageClassName := "test-block"
 
-	dataVolume := cdiv1.DataVolume{
+	dataSource := cdiv1.DataSource{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      release.Name,
 			Namespace: release.Namespace,
 		},
-		Spec: cdiv1.DataVolumeSpec{
-			PVC: &corev1.PersistentVolumeClaimSpec{
-				VolumeMode: ptr.To(corev1.PersistentVolumeBlock),
+		Spec: cdiv1.DataSourceSpec{
+			Source: cdiv1.DataSourceSource{
+				PVC: &cdiv1.DataVolumeSourcePVC{
+					Name:      release.Name,
+					Namespace: release.Namespace,
+				},
 			},
 		},
 	}
 
-	err = c.Create(ctx, &dataVolume)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	patch := client.MergeFrom(dataVolume.DeepCopy())
-
-	dataVolume.Status.ClaimName = release.Name
-
-	err = c.Status().Patch(ctx, &dataVolume, patch)
+	err = c.Create(ctx, &dataSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,11 +254,10 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 											Name: "boot",
 										},
 										Spec: cdiv1.DataVolumeSpec{
-											Source: &cdiv1.DataVolumeSource{
-												PVC: &cdiv1.DataVolumeSourcePVC{
-													Name:      dataVolume.Status.ClaimName,
-													Namespace: dataVolume.Namespace,
-												},
+											SourceRef: &cdiv1.DataVolumeSourceRef{
+												Kind:      "DataSource",
+												Name:      dataSource.Name,
+												Namespace: &dataSource.Namespace,
 											},
 											PVC: &corev1.PersistentVolumeClaimSpec{
 												AccessModes: []corev1.PersistentVolumeAccessMode{
@@ -377,11 +370,10 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 					Name: "boot",
 				},
 				Spec: cdiv1.DataVolumeSpec{
-					Source: &cdiv1.DataVolumeSource{
-						PVC: &cdiv1.DataVolumeSourcePVC{
-							Name:      dataVolume.Status.ClaimName,
-							Namespace: dataVolume.Namespace,
-						},
+					SourceRef: &cdiv1.DataVolumeSourceRef{
+						Kind:      "DataSource",
+						Name:      dataSource.Name,
+						Namespace: &dataSource.Namespace,
 					},
 					PVC: &corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{

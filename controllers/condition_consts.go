@@ -4,6 +4,7 @@ const (
 	KubevirtMachineTemplateReconciledCondition = "KubevirtMachineTemplateReconciled"
 
 	WaitingForDataVolumeReason = "WaitingForDataVolume"
+	WaitingForDataSourceReason = "WaitingForDataSource"
 )
 
 const (

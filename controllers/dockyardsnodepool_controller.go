@@ -27,7 +27,7 @@ import (
 )
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
-// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datavolumes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datasources,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanes,verbs=create;get;list;patch;watch
@@ -115,10 +115,10 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		return ctrl.Result{}, nil
 	}
 
-	var dataVolume cdiv1.DataVolume
-	err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataVolume)
+	var dataSource cdiv1.DataSource
+	err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
 	if apierrors.IsNotFound(err) {
-		conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataVolumeReason, "")
+		conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
 
 		return ctrl.Result{}, nil
 	}
@@ -176,11 +176,10 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 						StorageClassName: storageClassName,
 						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
 					},
-					Source: &cdiv1.DataVolumeSource{
-						PVC: &cdiv1.DataVolumeSourcePVC{
-							Name:      dataVolume.Status.ClaimName,
-							Namespace: dataVolume.Namespace,
-						},
+					SourceRef: &cdiv1.DataVolumeSourceRef{
+						Kind:      "DataSource",
+						Name:      dataSource.Name,
+						Namespace: &dataSource.Namespace,
 					},
 				},
 			},
