@@ -14,12 +14,14 @@ var (
 	DockyardsRelease        = mockCRD(dockyardsv1.ReleaseKind, "releases", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 	KubevirtMachineTemplate = mockCRD("KubevirtMachineTemplate", "kubevirtmachinetemplates", providerv1.GroupVersion.Group, providerv1.GroupVersion.Version)
 	CDIDataVolume           = mockCRD("DataVolume", "datavolumes", cdiv1.CDIGroupVersionKind.Group, cdiv1.CDIGroupVersionKind.Version)
+	CDIDataSource           = mockCRD("DataSource", "datasources", cdiv1.CDIGroupVersionKind.Group, cdiv1.CDIGroupVersionKind.Version)
 
 	CRDs = []*apiextensionsv1.CustomResourceDefinition{
 		DockyardsNodePool,
 		DockyardsRelease,
 		KubevirtMachineTemplate,
 		CDIDataVolume,
+		CDIDataSource,
 	}
 )
 

@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datasources,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datavolumes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=releases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;get;list;patch;watch
@@ -59,7 +60,7 @@ func (r *DockyardsReleaseReconciler) reconcileDataVolume(ctx context.Context, re
 
 	dataVolume := cdiv1.DataVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      release.Name,
+			Name:      release.Name + "-" + release.Status.LatestVersion,
 			Namespace: release.Namespace,
 		},
 	}
@@ -88,7 +89,7 @@ func (r *DockyardsReleaseReconciler) reconcileDataVolume(ctx context.Context, re
 
 		dataVolume.Spec.Storage = &cdiv1.StorageSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
+				corev1.ReadWriteMany,
 			},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
@@ -115,7 +116,36 @@ func (r *DockyardsReleaseReconciler) reconcileDataVolume(ctx context.Context, re
 	}
 
 	if operationResult != controllerutil.OperationResultNone {
-		logger.Info("reconciled data volume")
+		logger.Info("reconciled data volume", "name", dataVolume.Name)
+	}
+
+	dataSource := cdiv1.DataSource{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+		},
+	}
+
+	operationResult, err = controllerutil.CreateOrPatch(ctx, r.Client, &dataSource, func() error {
+		if dataSource.Labels == nil {
+			dataSource.Labels = make(map[string]string)
+		}
+
+		dataSource.Labels[dockyardsv1.LabelReleaseName] = release.Name
+
+		dataSource.Spec.Source.PVC = &cdiv1.DataVolumeSourcePVC{
+			Name:      dataVolume.Name,
+			Namespace: dataVolume.Namespace,
+		}
+
+		return nil
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if operationResult != controllerutil.OperationResultNone {
+		logger.Info("reconciled data source")
 	}
 
 	return ctrl.Result{}, nil
