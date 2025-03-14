@@ -32,8 +32,6 @@ func (r *DockyardsNodeReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if !strings.HasPrefix(dockyardsNode.Status.CloudServiceID, "kubevirt://") {
-		logger.Info("ignoring dockyards node without kubevirt prefix")
-
 		return ctrl.Result{}, nil
 	}
 
