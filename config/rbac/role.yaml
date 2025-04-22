@@ -35,6 +35,12 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - cdi.kubevirt.io
+  resources:
+  - datavolumes/source
+  verbs:
+  - create
+- apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters
