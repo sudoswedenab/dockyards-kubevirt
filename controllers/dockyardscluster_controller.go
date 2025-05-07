@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"net/netip"
 
 	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha3"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -130,6 +131,15 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 	var gatewayIP string
 	for _, address := range gateway.Status.Addresses {
 		if address.Type == nil || *address.Type != gatewayapiv1.IPAddressType {
+			continue
+		}
+
+		addr, err := netip.ParseAddr(address.Value)
+		if err != nil {
+			continue
+		}
+
+		if !addr.Is4() {
 			continue
 		}
 
