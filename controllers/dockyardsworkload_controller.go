@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"net/netip"
 	"strings"
 
 	"bitbucket.org/sudosweden/dockyards-backend/pkg/api/apiutil"
@@ -108,6 +109,15 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	var gatewayIP string
 	for _, address := range gateway.Status.Addresses {
 		if *address.Type == gatewayapiv1.IPAddressType {
+			addr, err := netip.ParseAddr(address.Value)
+			if err != nil {
+				continue
+			}
+
+			if !addr.Is4() {
+				continue
+			}
+
 			gatewayIP = address.Value
 
 			break
