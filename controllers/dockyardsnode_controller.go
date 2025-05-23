@@ -31,11 +31,11 @@ func (r *DockyardsNodeReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if !strings.HasPrefix(dockyardsNode.Status.CloudServiceID, "kubevirt://") {
+	if dockyardsNode.Spec.ProviderID == nil || !strings.HasPrefix(*dockyardsNode.Spec.ProviderID, "kubevirt://") {
 		return ctrl.Result{}, nil
 	}
 
-	kubevirtMachineName := strings.TrimPrefix(dockyardsNode.Status.CloudServiceID, "kubevirt://")
+	kubevirtMachineName := strings.TrimPrefix(*dockyardsNode.Spec.ProviderID, "kubevirt://")
 
 	var kubevirtMachine providerv1.KubevirtMachine
 	err = r.Get(ctx, client.ObjectKey{Name: kubevirtMachineName, Namespace: dockyardsNode.Namespace}, &kubevirtMachine)
