@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	dockyardsv1 "bitbucket.org/sudosweden/dockyards-backend/pkg/api/v1alpha3"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"bitbucket.org/sudosweden/dockyards-kubevirt/test/mockcrds"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"

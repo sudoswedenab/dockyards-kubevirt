@@ -3,13 +3,13 @@ module bitbucket.org/sudosweden/dockyards-kubevirt
 go 1.24.1
 
 require (
-	bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250523070059-db3d49751b4f
 	github.com/fluxcd/pkg/runtime v0.46.0
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.6.0
 	github.com/siderolabs/cluster-api-bootstrap-provider-talos v0.6.5
 	github.com/siderolabs/cluster-api-control-plane-provider-talos v0.5.6
 	github.com/spf13/pflag v1.0.5
+	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20250602104230-d4e864fd784b
 	k8s.io/api v0.31.3
 	k8s.io/apiextensions-apiserver v0.31.3
 	k8s.io/apimachinery v0.31.3

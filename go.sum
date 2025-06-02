@@ -1,5 +1,3 @@
-bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250523070059-db3d49751b4f h1:6y3gpe3w+34QnnqVnz0kuogM8ZcBhUdrgjxMSEhNKX4=
-bitbucket.org/sudosweden/dockyards-backend/pkg/api v0.0.0-20250523070059-db3d49751b4f/go.mod h1:ewkKEkiqkXxqZsOSNitvHOvK86uJ/Dfqif8aKI5q2UI=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 dario.cat/mergo v1.0.1 h1:Ra4+bf83h2ztPIQYNP99R6m+Y7KfnARDfID+a+vLl4s=
 dario.cat/mergo v1.0.1/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
@@ -277,6 +275,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
+github.com/sudoswedenab/dockyards-backend/api v0.0.0-20250602104230-d4e864fd784b h1:UvNr/EUzxLuk3wPpI2B0/Z1/hZygx3TOfNrDej7ZtdY=
+github.com/sudoswedenab/dockyards-backend/api v0.0.0-20250602104230-d4e864fd784b/go.mod h1:SgDePsi3cAq4MS09YfDBg4wVp1nVpPUaF0oyyPrUUNY=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
