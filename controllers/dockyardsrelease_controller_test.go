@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"bitbucket.org/sudosweden/dockyards-kubevirt/test/mockcrds"
+	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"

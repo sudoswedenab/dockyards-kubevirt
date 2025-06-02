@@ -1,4 +1,4 @@
-module bitbucket.org/sudosweden/dockyards-kubevirt
+module github.com/sudoswedenab/dockyards-kubevirt
 
 go 1.24.1
 

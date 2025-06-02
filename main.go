@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 
-	"bitbucket.org/sudosweden/dockyards-kubevirt/controllers"
+	"github.com/sudoswedenab/dockyards-kubevirt/controllers"
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
 	"k8s.io/utils/ptr"
