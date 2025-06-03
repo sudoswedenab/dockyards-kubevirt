@@ -59,7 +59,10 @@ func TestDockyardsReleaseReconciler_ReconcileDataVolume(t *testing.T) {
 
 	t.Cleanup(func() {
 		cancel()
-		env.Stop()
+		err := env.Stop()
+		if err != nil {
+			panic(err)
+		}
 	})
 
 	scheme := runtime.NewScheme()
