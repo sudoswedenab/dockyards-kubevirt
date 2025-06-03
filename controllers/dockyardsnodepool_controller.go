@@ -16,6 +16,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -355,17 +356,24 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 			Op:   "replace",
 			Path: "/cluster/apiServer/certSANs",
 			Value: apiextensionsv1.JSON{
-				Raw: []byte(strconv.Quote(dockyardsCluster.Status.APIEndpoint.Host)),
+				Raw: []byte("[" + strconv.Quote(dockyardsCluster.Status.APIEndpoint.Host) + "]"),
 			},
 		},
 	}
 
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
+		raw, err := json.Marshal(map[string]string{
+			"name": "none",
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
 		configPatch := bootstrapv1.ConfigPatches{
 			Op:   "replace",
-			Path: "/cluster/network/cni/name",
+			Path: "/cluster/network/cni",
 			Value: apiextensionsv1.JSON{
-				Raw: []byte(strconv.Quote("none")),
+				Raw: raw,
 			},
 		}
 

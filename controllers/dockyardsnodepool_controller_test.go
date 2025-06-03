@@ -665,14 +665,14 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 								Op:   "replace",
 								Path: "/cluster/apiServer/certSANs",
 								Value: apiextensionsv1.JSON{
-									Raw: []byte(strconv.Quote(owner.Status.APIEndpoint.Host)),
+									Raw: []byte("[" + strconv.Quote(owner.Status.APIEndpoint.Host) + "]"),
 								},
 							},
 							{
 								Op:   "replace",
-								Path: "/cluster/network/cni/name",
+								Path: "/cluster/network/cni",
 								Value: apiextensionsv1.JSON{
-									Raw: []byte(strconv.Quote("none")),
+									Raw: []byte("{\"name\":\"none\"}"),
 								},
 							},
 						},
