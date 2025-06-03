@@ -238,8 +238,9 @@ func (r *DockyardsReleaseReconciler) reconcileAccessControl(ctx context.Context,
 func (r *DockyardsReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	scheme := mgr.GetScheme()
 
-	_ = dockyardsv1.AddToScheme(scheme)
 	_ = cdiv1.AddToScheme(scheme)
+	_ = dockyardsv1.AddToScheme(scheme)
+	_ = rbacv1.AddToScheme(scheme)
 
 	err := ctrl.NewControllerManagedBy(mgr).
 		Named("dockyards/release").
