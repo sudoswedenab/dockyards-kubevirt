@@ -16,14 +16,14 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
+	"strconv"
 
-	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
-	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
+	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,7 +37,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
@@ -324,6 +323,12 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, WaitingForClusterEndpointReason, "")
+
+		return ctrl.Result{}, nil
+	}
+
 	talosControlPlane := controlplanev1.TalosControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dockyardsNodePool.Name,
@@ -331,21 +336,40 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		},
 	}
 
-	var tlsRoute gatewayapiv1alpha2.TLSRoute
-	err := r.Get(ctx, client.ObjectKeyFromObject(dockyardsCluster), &tlsRoute)
-	if client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
+	configPatches := []bootstrapv1.ConfigPatches{
+		{
+			Op:   "replace",
+			Path: "/cluster/network/podSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: []byte("[\"10.128.0.0/16\"]"),
+			},
+		},
+		{
+			Op:   "replace",
+			Path: "/cluster/network/serviceSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: []byte("[\"10.112.0.0/12\"]"),
+			},
+		},
+		{
+			Op:   "replace",
+			Path: "/cluster/apiServer/certSANs",
+			Value: apiextensionsv1.JSON{
+				Raw: []byte(strconv.Quote(dockyardsCluster.Status.APIEndpoint.Host)),
+			},
+		},
 	}
 
-	if apierrors.IsNotFound(err) {
-		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, WaitingForTLSRouteReason, "")
+	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/cni/name",
+			Value: apiextensionsv1.JSON{
+				Raw: []byte(strconv.Quote("none")),
+			},
+		}
 
-		return ctrl.Result{}, nil
-	}
-
-	certSANs, err := json.Marshal(tlsRoute.Spec.Hostnames)
-	if err != nil {
-		return ctrl.Result{}, err
+		configPatches = append(configPatches, configPatch)
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlane, func() error {
@@ -364,31 +388,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 		talosControlPlane.Spec.ControlPlaneConfig = controlplanev1.ControlPlaneConfig{
 			ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-				GenerateType: "controlplane",
-				TalosVersion: "v1.7",
-				ConfigPatches: []bootstrapv1.ConfigPatches{
-					{
-						Op:   "replace",
-						Path: "/cluster/network/podSubnets",
-						Value: apiextensionsv1.JSON{
-							Raw: []byte("[\"10.128.0.0/16\"]"),
-						},
-					},
-					{
-						Op:   "replace",
-						Path: "/cluster/network/serviceSubnets",
-						Value: apiextensionsv1.JSON{
-							Raw: []byte("[\"10.112.0.0/12\"]"),
-						},
-					},
-					{
-						Op:   "replace",
-						Path: "/cluster/apiServer/certSANs",
-						Value: apiextensionsv1.JSON{
-							Raw: certSANs,
-						},
-					},
-				},
+				GenerateType:  "controlplane",
+				TalosVersion:  "v1.7",
+				ConfigPatches: configPatches,
 			},
 		}
 
@@ -527,7 +529,6 @@ func (r *DockyardsNodePoolReconciler) SetupWithManager(m ctrl.Manager) error {
 	_ = controlplanev1.AddToScheme(scheme)
 	_ = dockyardsv1.AddToScheme(scheme)
 	_ = providerv1.AddToScheme(scheme)
-	_ = gatewayapiv1alpha2.Install(scheme)
 
 	err := ctrl.NewControllerManagedBy(m).For(&dockyardsv1.NodePool{}).Complete(r)
 	if err != nil {

@@ -15,12 +15,14 @@
 package mockcrds
 
 import (
+	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 var (
@@ -29,6 +31,9 @@ var (
 	KubevirtMachineTemplate = mockCRD("KubevirtMachineTemplate", "kubevirtmachinetemplates", providerv1.GroupVersion.Group, providerv1.GroupVersion.Version)
 	CDIDataVolume           = mockCRD("DataVolume", "datavolumes", cdiv1.CDIGroupVersionKind.Group, cdiv1.CDIGroupVersionKind.Version)
 	CDIDataSource           = mockCRD("DataSource", "datasources", cdiv1.CDIGroupVersionKind.Group, cdiv1.CDIGroupVersionKind.Version)
+	DockyardsCluster        = mockCRD(dockyardsv1.ClusterKind, "clusters", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
+	TalosControlPlane       = mockCRD("TalosControlPlane", "taloscontrolplanes", controlplanev1.GroupVersion.Group, controlplanev1.GroupVersion.Version)
+	CAPICluster             = mockCRD(clusterv1.ClusterKind, "clusters", clusterv1.GroupVersion.Group, clusterv1.GroupVersion.Version)
 
 	CRDs = []*apiextensionsv1.CustomResourceDefinition{
 		DockyardsNodePool,
@@ -36,6 +41,9 @@ var (
 		KubevirtMachineTemplate,
 		CDIDataVolume,
 		CDIDataSource,
+		DockyardsCluster,
+		TalosControlPlane,
+		CAPICluster,
 	}
 )
 

@@ -18,13 +18,17 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strconv"
 	"testing"
 
-	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
+	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,6 +36,7 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -61,7 +66,10 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 	t.Cleanup(func() {
 		cancel()
-		env.Stop()
+		err := env.Stop()
+		if err != nil {
+			panic(err)
+		}
 	})
 
 	scheme := runtime.NewScheme()
@@ -492,6 +500,190 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 							CheckStrategy: "none",
 						},
 					},
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
+}
+
+func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("no kubebuilder assets configured")
+	}
+
+	env := envtest.Environment{
+		CRDs: mockcrds.CRDs,
+	}
+
+	textHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})
+	slogr := logr.FromSlogHandler(textHandler)
+
+	ctrl.SetLogger(slogr)
+
+	ctx := t.Context()
+
+	cfg, err := env.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		err := env.Stop()
+		if err != nil {
+			panic(err)
+		}
+	})
+
+	scheme := runtime.NewScheme()
+
+	_ = clusterv1.AddToScheme(scheme)
+	_ = controlplanev1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	_ = dockyardsv1.AddToScheme(scheme)
+
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	namespace := corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "test-",
+		},
+	}
+
+	err = c.Create(ctx, &namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go func() {
+		err := mgr.Start(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	reconciler := DockyardsNodePoolReconciler{
+		Client: mgr.GetClient(),
+	}
+
+	t.Run("test network plugin", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.ClusterSpec{
+				NoDefaultNetworkPlugin: true,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cluster := clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      owner.Name,
+				Namespace: owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &cluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual controlplanev1.TalosControlPlane
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := controlplanev1.TalosControlPlane{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: controlplanev1.TalosControlPlaneSpec{
+				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
+					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
+						GenerateType: "controlplane",
+						ConfigPatches: []bootstrapv1.ConfigPatches{
+							{
+								Op:   "replace",
+								Path: "/cluster/network/podSubnets",
+								Value: apiextensionsv1.JSON{
+									Raw: []byte("[" + strconv.Quote("10.128.0.0/16") + "]"),
+								},
+							},
+							{
+								Op:   "replace",
+								Path: "/cluster/network/serviceSubnets",
+								Value: apiextensionsv1.JSON{
+									Raw: []byte("[" + strconv.Quote("10.112.0.0/12") + "]"),
+								},
+							},
+							{
+								Op:   "replace",
+								Path: "/cluster/apiServer/certSANs",
+								Value: apiextensionsv1.JSON{
+									Raw: []byte(strconv.Quote(owner.Status.APIEndpoint.Host)),
+								},
+							},
+							{
+								Op:   "replace",
+								Path: "/cluster/network/cni/name",
+								Value: apiextensionsv1.JSON{
+									Raw: []byte(strconv.Quote("none")),
+								},
+							},
+						},
+						TalosVersion: "v1.7",
+					},
+				},
+				InfrastructureTemplate: corev1.ObjectReference{
+					APIVersion: providerv1.GroupVersion.String(),
+					Kind:       "KubevirtMachineTemplate",
+					Name:       nodePool.Name,
+					Namespace:  nodePool.Namespace,
 				},
 			},
 		}

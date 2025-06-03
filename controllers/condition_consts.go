@@ -24,7 +24,8 @@ const (
 const (
 	TalosControlPlaneReconciledCondition = "TalosControlPlaneReconciled"
 
-	WaitingForTLSRouteReason = "WaitingForTLSRoute"
+	WaitingForTLSRouteReason        = "WaitingForTLSRoute"
+	WaitingForClusterEndpointReason = "WaitingForClusterEndpoint"
 )
 
 const (
