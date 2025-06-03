@@ -16,6 +16,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"strings"
 
@@ -27,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/controllers/remote"
+	"sigs.k8s.io/cluster-api/controllers/clustercache"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,9 +51,9 @@ import (
 type DockyardsWorkloadReconciler struct {
 	client.Client
 
-	Tracker                *remote.ClusterCacheTracker
 	controller             controller.Controller
 	GatewayParentReference gatewayapiv1.ParentReference
+	ClusterCache           clustercache.ClusterCache
 }
 
 func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -144,12 +145,21 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	err = r.watchClusterServices(ctx, &cluster)
+	err = r.ClusterCache.Watch(ctx, client.ObjectKeyFromObject(&cluster), clustercache.NewWatcher(clustercache.WatcherOptions{
+		Name:         "workload-watchServices",
+		Watcher:      r.controller,
+		Kind:         &corev1.Service{},
+		EventHandler: handler.EnqueueRequestsFromMapFunc(r.serviceToWorkload),
+	}))
 	if err != nil {
+		if errors.Is(err, clustercache.ErrClusterNotConnected) {
+			return ctrl.Result{}, nil
+		}
+
 		return ctrl.Result{}, err
 	}
 
-	remoteClient, err := r.Tracker.GetClient(ctx, client.ObjectKeyFromObject(&cluster))
+	remoteClient, err := r.ClusterCache.GetClient(ctx, client.ObjectKeyFromObject(&cluster))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -340,20 +350,6 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	return ctrl.Result{}, nil
-}
-
-func (r *DockyardsWorkloadReconciler) watchClusterServices(ctx context.Context, cluster *clusterv1.Cluster) error {
-	if r.Tracker == nil {
-		return nil
-	}
-
-	return r.Tracker.Watch(ctx, remote.WatchInput{
-		Name:         "workload-watchServices",
-		Cluster:      client.ObjectKeyFromObject(cluster),
-		Watcher:      r.controller,
-		Kind:         &corev1.Service{},
-		EventHandler: handler.EnqueueRequestsFromMapFunc(r.serviceToWorkload),
-	})
 }
 
 func (r *DockyardsWorkloadReconciler) serviceToWorkload(ctx context.Context, obj client.Object) []ctrl.Request {

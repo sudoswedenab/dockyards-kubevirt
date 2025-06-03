@@ -20,17 +20,24 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/sudoswedenab/dockyards-kubevirt/controllers"
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
+	"github.com/sudoswedenab/dockyards-kubevirt/controllers"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/cluster-api/controllers/remote"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/clustercache"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
+
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 func main() {
 	var gatewayName string
@@ -60,10 +67,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	scheme := runtime.NewScheme()
+
+	_ = clusterv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
 	opts := manager.Options{
 		Metrics: server.Options{
 			BindAddress: metricsBindAddress,
 		},
+		Scheme: scheme,
 	}
 
 	mgr, err := ctrl.NewManager(cfg, opts)
@@ -73,9 +86,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	tracker, err := remote.NewClusterCacheTracker(mgr, remote.ClusterCacheTrackerOptions{})
+	secretClient, err := client.New(mgr.GetConfig(), client.Options{
+		HTTPClient: mgr.GetHTTPClient(),
+		Cache: &client.CacheOptions{
+			Reader: mgr.GetCache(),
+		},
+	})
 	if err != nil {
-		slogr.Error(err, "error creating cluster cache tracker")
+		slogr.Error(err, "error creating secret client")
+
+		os.Exit(1)
+	}
+
+	clusterCache, err := clustercache.SetupWithManager(ctx, mgr, clustercache.Options{
+		SecretClient: secretClient,
+		Client: clustercache.ClientOptions{
+			UserAgent: "kubevirt.dockyards.io",
+		},
+	}, controller.Options{})
+	if err != nil {
+		slogr.Error(err, "error creating cluster cache")
 
 		os.Exit(1)
 	}
@@ -126,8 +156,8 @@ func main() {
 
 	err = (&controllers.DockyardsWorkloadReconciler{
 		Client:                 mgr.GetClient(),
-		Tracker:                tracker,
 		GatewayParentReference: gatewayParentReference,
+		ClusterCache:           clusterCache,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards deployment reconciler")
