@@ -102,7 +102,7 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.reconcileTalosControlPlane(ctx, &dockyardsNodePool, ownerCluster)
 	}
 
-	result, err = r.reconcileTalosConfigTemplate(ctx, &dockyardsNodePool)
+	result, err = r.reconcileTalosConfigTemplate(ctx, &dockyardsNodePool, ownerCluster)
 	if err != nil {
 		return result, err
 	}
@@ -340,20 +340,6 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	configPatches := []bootstrapv1.ConfigPatches{
 		{
 			Op:   "replace",
-			Path: "/cluster/network/podSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: []byte("[\"10.128.0.0/16\"]"),
-			},
-		},
-		{
-			Op:   "replace",
-			Path: "/cluster/network/serviceSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: []byte("[\"10.112.0.0/12\"]"),
-			},
-		},
-		{
-			Op:   "replace",
 			Path: "/cluster/apiServer/certSANs",
 			Value: apiextensionsv1.JSON{
 				Raw: []byte("[" + strconv.Quote(dockyardsCluster.Status.APIEndpoint.Host) + "]"),
@@ -372,6 +358,40 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		configPatch := bootstrapv1.ConfigPatches{
 			Op:   "replace",
 			Path: "/cluster/network/cni",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
+		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/podSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
+		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/serviceSubnets",
 			Value: apiextensionsv1.JSON{
 				Raw: raw,
 			},
@@ -436,7 +456,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (ctrl.Result, error) {
+func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	talosConfigTemplate := bootstrapv1.TalosConfigTemplate{
@@ -446,26 +466,47 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 		},
 	}
 
+	configPatches := []bootstrapv1.ConfigPatches{}
+
+	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
+		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/podSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
+		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/serviceSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosConfigTemplate, func() error {
 		talosConfigTemplate.Spec.Template.Spec.GenerateType = "worker"
 		talosConfigTemplate.Spec.Template.Spec.TalosVersion = "v1.7"
 
-		talosConfigTemplate.Spec.Template.Spec.ConfigPatches = []bootstrapv1.ConfigPatches{
-			{
-				Op:   "replace",
-				Path: "/cluster/network/podSubnets",
-				Value: apiextensionsv1.JSON{
-					Raw: []byte("[\"10.128.0.0/16\"]"),
-				},
-			},
-			{
-				Op:   "replace",
-				Path: "/cluster/network/serviceSubnets",
-				Value: apiextensionsv1.JSON{
-					Raw: []byte("[\"10.112.0.0/12\"]"),
-				},
-			},
-		}
+		talosConfigTemplate.Spec.Template.Spec.ConfigPatches = configPatches
 
 		return nil
 	})

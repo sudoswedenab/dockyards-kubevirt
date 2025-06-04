@@ -15,6 +15,7 @@
 package mockcrds
 
 import (
+	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -34,6 +35,7 @@ var (
 	DockyardsCluster        = mockCRD(dockyardsv1.ClusterKind, "clusters", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 	TalosControlPlane       = mockCRD("TalosControlPlane", "taloscontrolplanes", controlplanev1.GroupVersion.Group, controlplanev1.GroupVersion.Version)
 	CAPICluster             = mockCRD(clusterv1.ClusterKind, "clusters", clusterv1.GroupVersion.Group, clusterv1.GroupVersion.Version)
+	TalosConfigTemplate     = mockCRD("TalosConfigTemplate", "talosconfigtemplates", bootstrapv1.GroupVersion.Group, bootstrapv1.GroupVersion.Version)
 
 	CRDs = []*apiextensionsv1.CustomResourceDefinition{
 		DockyardsNodePool,
@@ -44,6 +46,7 @@ var (
 		DockyardsCluster,
 		TalosControlPlane,
 		CAPICluster,
+		TalosConfigTemplate,
 	}
 )
 
