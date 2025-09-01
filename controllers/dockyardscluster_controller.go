@@ -19,8 +19,9 @@ import (
 	"encoding/json"
 	"net/netip"
 
-	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -107,16 +108,22 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx)
-
+func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
 	var hostname string
 	for _, listener := range gateway.Spec.Listeners {
-		if listener.Name != "dockyards-https" {
+		if listener.Hostname == nil ||
+			listener.AllowedRoutes == nil ||
+			listener.AllowedRoutes.Namespaces == nil ||
+			listener.AllowedRoutes.Namespaces.Selector == nil {
 			continue
 		}
 
-		if listener.Hostname == nil {
+		partOf, hasLabel := listener.AllowedRoutes.Namespaces.Selector.MatchLabels["app.kubernetes.io/part-of"]
+		if !hasLabel {
+			continue
+		}
+
+		if partOf != "dockyards" {
 			continue
 		}
 
@@ -124,7 +131,7 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, d
 	}
 
 	if hostname == "" {
-		logger.Info("ignoring api endpoint for gateway without hostname")
+		conditions.MarkFalse(dockyardsCluster, APIEndpointReconciledCondition, WaitingForListenerHostnameReason, "")
 
 		return ctrl.Result{}, nil
 	}
@@ -135,6 +142,8 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(ctx context.Context, d
 		Host: host,
 		Port: 6443,
 	}
+
+	conditions.MarkTrue(dockyardsCluster, APIEndpointReconciledCondition, ReconciledReason, "")
 
 	return ctrl.Result{}, nil
 }

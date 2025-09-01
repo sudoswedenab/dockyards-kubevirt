@@ -39,3 +39,9 @@ const (
 const (
 	ReconciledReason = "Reconciled"
 )
+
+const (
+	APIEndpointReconciledCondition = "APIEndpointReconciled"
+
+	WaitingForListenerHostnameReason = "WaitingForListenerHostname"
+)
