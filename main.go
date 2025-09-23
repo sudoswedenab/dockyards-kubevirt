@@ -45,11 +45,13 @@ func main() {
 	var metricsBindAddress string
 	var dockyardsNamespace string
 	var dataVolumeStorageClassName string
+	var enableMultus bool
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
 	pflag.StringVar(&dockyardsNamespace, "dockyards-namespace", "dockyards-system", "dockyards namespace")
 	pflag.StringVar(&dataVolumeStorageClassName, "data-volume-storage-class-name", "rook-ceph-block", "data volume storage class name")
+	pflag.BoolVar(&enableMultus, "enable-multus", false, "enable multus (experimental)")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -127,6 +129,7 @@ func main() {
 	err = (&controllers.DockyardsNodePoolReconciler{
 		Client:                     mgr.GetClient(),
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
+		EnableMultus:               enableMultus,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")

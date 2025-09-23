@@ -6,6 +6,7 @@ require (
 	github.com/fluxcd/pkg/runtime v0.46.0
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.6.0
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.3.0
 	github.com/siderolabs/cluster-api-bootstrap-provider-talos v0.6.5
 	github.com/siderolabs/cluster-api-control-plane-provider-talos v0.5.6
 	github.com/spf13/pflag v1.0.5

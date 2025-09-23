@@ -21,6 +21,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
+	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
@@ -56,6 +57,7 @@ type DockyardsNodePoolReconciler struct {
 	client.Client
 
 	DataVolumeStorageClassName *string
+	EnableMultus               bool
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -270,6 +272,42 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			volumes = append(volumes, volume)
 		}
 
+		interfaces := []kubevirtv1.Interface{
+			*kubevirtv1.DefaultBridgeNetworkInterface(),
+		}
+
+		networks := []kubevirtv1.Network{
+			*kubevirtv1.DefaultPodNetwork(),
+		}
+
+		if r.EnableMultus {
+			var networkAttchmentDefinitionList networkv1.NetworkAttachmentDefinitionList
+			err := r.List(ctx, &networkAttchmentDefinitionList, client.InNamespace(dockyardsNodePool.Namespace))
+			if err != nil {
+				return err
+			}
+
+			for _, networkAttachmentDefinition := range networkAttchmentDefinitionList.Items {
+				iface := kubevirtv1.Interface{
+					Name:                   networkAttachmentDefinition.Name,
+					InterfaceBindingMethod: kubevirtv1.DefaultBridgeNetworkInterface().InterfaceBindingMethod,
+				}
+
+				interfaces = append(interfaces, iface)
+
+				network := kubevirtv1.Network{
+					Name: networkAttachmentDefinition.Name,
+					NetworkSource: kubevirtv1.NetworkSource{
+						Multus: &kubevirtv1.MultusNetwork{
+							NetworkName: networkAttachmentDefinition.Name,
+						},
+					},
+				}
+
+				networks = append(networks, network)
+			}
+		}
+
 		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
 			DataVolumeTemplates: dataVolumeTemplates,
 			RunStrategy:         ptr.To(kubevirtv1.RunStrategyAlways),
@@ -280,15 +318,8 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 							Cores: uint32(cpu.Value()),
 						},
 						Devices: kubevirtv1.Devices{
-							Disks: disks,
-							Interfaces: []kubevirtv1.Interface{
-								{
-									Name: "default",
-									InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
-										Bridge: &kubevirtv1.InterfaceBridge{},
-									},
-								},
-							},
+							Disks:      disks,
+							Interfaces: interfaces,
 						},
 						Memory: &kubevirtv1.Memory{
 							Guest: memory,
@@ -296,14 +327,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 					},
 					EvictionStrategy: ptr.To(kubevirtv1.EvictionStrategyLiveMigrate),
 					Volumes:          volumes,
-					Networks: []kubevirtv1.Network{
-						{
-							Name: "default",
-							NetworkSource: kubevirtv1.NetworkSource{
-								Pod: &kubevirtv1.PodNetwork{},
-							},
-						},
-					},
+					Networks:         networks,
 				},
 			},
 		}
@@ -578,6 +602,10 @@ func (r *DockyardsNodePoolReconciler) SetupWithManager(m ctrl.Manager) error {
 	_ = controlplanev1.AddToScheme(scheme)
 	_ = dockyardsv1.AddToScheme(scheme)
 	_ = providerv1.AddToScheme(scheme)
+
+	if r.EnableMultus {
+		_ = networkv1.AddToScheme(scheme)
+	}
 
 	err := ctrl.NewControllerManagedBy(m).For(&dockyardsv1.NodePool{}).Complete(r)
 	if err != nil {

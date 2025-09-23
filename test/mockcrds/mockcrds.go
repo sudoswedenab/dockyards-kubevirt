@@ -15,6 +15,7 @@
 package mockcrds
 
 import (
+	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
@@ -47,6 +48,12 @@ var (
 		TalosControlPlane,
 		CAPICluster,
 		TalosConfigTemplate,
+	}
+
+	NetworkAttachmentDefinition = mockCRD("NetworkAttachmentDefinition", "network-attachment-definitions", networkv1.SchemeGroupVersion.Group, networkv1.SchemeGroupVersion.Version)
+
+	MultusCRDs = []*apiextensionsv1.CustomResourceDefinition{
+		NetworkAttachmentDefinition,
 	}
 )
 
