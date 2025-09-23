@@ -45,8 +45,6 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
-      imagePullSecrets:
-      - name: dockyards-registry
       serviceAccountName: dockyards-kubevirt
       securityContext:
         fsGroup: 65532
