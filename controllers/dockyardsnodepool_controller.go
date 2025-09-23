@@ -30,6 +30,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -39,6 +40,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
@@ -595,6 +597,36 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 	return ctrl.Result{}, nil
 }
 
+func (r *DockyardsNodePoolReconciler) dockyardsClusterToDockyardsNodePools(ctx context.Context, obj client.Object) []ctrl.Request {
+	cluster, ok := obj.(*dockyardsv1.Cluster)
+	if !ok {
+		return nil
+	}
+
+	matchingLabels := client.MatchingLabels{
+		dockyardsv1.LabelClusterName: cluster.Name,
+	}
+
+	var nodePoolList dockyardsv1.NodePoolList
+	err := r.List(ctx, &nodePoolList, matchingLabels, client.InNamespace(cluster.Namespace))
+	if err != nil {
+		return nil
+	}
+
+	requests := []ctrl.Request{}
+
+	for _, item := range nodePoolList.Items {
+		requests = append(requests, ctrl.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: item.Namespace,
+				Name:      item.Name,
+			},
+		})
+	}
+
+	return requests
+}
+
 func (r *DockyardsNodePoolReconciler) SetupWithManager(m ctrl.Manager) error {
 	scheme := m.GetScheme()
 
@@ -607,7 +639,13 @@ func (r *DockyardsNodePoolReconciler) SetupWithManager(m ctrl.Manager) error {
 		_ = networkv1.AddToScheme(scheme)
 	}
 
-	err := ctrl.NewControllerManagedBy(m).For(&dockyardsv1.NodePool{}).Complete(r)
+	err := ctrl.NewControllerManagedBy(m).
+		For(&dockyardsv1.NodePool{}).
+		Watches(
+			&dockyardsv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(r.dockyardsClusterToDockyardsNodePools),
+		).
+		Complete(r)
 	if err != nil {
 		return err
 	}
