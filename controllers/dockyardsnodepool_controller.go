@@ -61,6 +61,7 @@ type DockyardsNodePoolReconciler struct {
 
 	DataVolumeStorageClassName *string
 	EnableMultus               bool
+	ValidNodeIPSubnets         []string
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -375,6 +376,23 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 		configPatch := bootstrapv1.ConfigPatches{
 			Op:   "replace",
 			Path: "/cluster/network/serviceSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	if len(r.ValidNodeIPSubnets) > 0 {
+		raw, err := json.Marshal(r.ValidNodeIPSubnets)
+		if err != nil {
+			return nil, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/machine/kubelet/nodeIP/validSubnets",
 			Value: apiextensionsv1.JSON{
 				Raw: raw,
 			},
