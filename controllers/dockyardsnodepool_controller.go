@@ -276,13 +276,10 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			volumes = append(volumes, volume)
 		}
 
-		interfaces := []kubevirtv1.Interface{
-			*kubevirtv1.DefaultBridgeNetworkInterface(),
-		}
+		interfaces := []kubevirtv1.Interface{}
+		networks := []kubevirtv1.Network{}
 
-		networks := []kubevirtv1.Network{
-			*kubevirtv1.DefaultPodNetwork(),
-		}
+		defaultPodNetwork := true
 
 		if r.EnableMultus {
 			var networkAttchmentDefinitionList networkv1.NetworkAttachmentDefinitionList
@@ -292,6 +289,11 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			}
 
 			for _, networkAttachmentDefinition := range networkAttchmentDefinitionList.Items {
+				_, hasLabel := networkAttachmentDefinition.Labels[LabelNetworkAsDefault]
+				if hasLabel {
+					defaultPodNetwork = false
+				}
+
 				iface := kubevirtv1.Interface{
 					Name:                   networkAttachmentDefinition.Name,
 					InterfaceBindingMethod: kubevirtv1.DefaultBridgeNetworkInterface().InterfaceBindingMethod,
@@ -304,12 +306,18 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 					NetworkSource: kubevirtv1.NetworkSource{
 						Multus: &kubevirtv1.MultusNetwork{
 							NetworkName: networkAttachmentDefinition.Name,
+							Default:     hasLabel,
 						},
 					},
 				}
 
 				networks = append(networks, network)
 			}
+		}
+
+		if defaultPodNetwork {
+			interfaces = append([]kubevirtv1.Interface{*kubevirtv1.DefaultBridgeNetworkInterface()}, interfaces...)
+			networks = append([]kubevirtv1.Network{*kubevirtv1.DefaultPodNetwork()}, networks...)
 		}
 
 		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{

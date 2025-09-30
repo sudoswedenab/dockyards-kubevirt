@@ -1400,4 +1400,111 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
 		}
 	})
+
+	t.Run("test network attachment definition with default label", func(t *testing.T) {
+		namespace := corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "multus-",
+			},
+		}
+
+		err := c.Create(ctx, &namespace)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		networkAttachmentDefinition := networkv1.NetworkAttachmentDefinition{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "multus-",
+				Namespace:    namespace.Name,
+				Labels: map[string]string{
+					LabelNetworkAsDefault: "true",
+				},
+			},
+			Spec: networkv1.NetworkAttachmentDefinitionSpec{
+				Config: "{}",
+			},
+		}
+
+		err = c.Create(ctx, &networkAttachmentDefinition)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "multus-",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := providerv1.KubevirtMachineTemplate{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: providerv1.KubevirtMachineTemplateSpec{
+				Template: providerv1.KubevirtMachineTemplateResource{
+					Spec: providerv1.KubevirtMachineSpec{
+						BootstrapCheckSpec: actual.Spec.Template.Spec.BootstrapCheckSpec,
+						VirtualMachineTemplate: providerv1.VirtualMachineTemplateSpec{
+							Spec: kubevirtv1.VirtualMachineSpec{
+								DataVolumeTemplates: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates,
+								RunStrategy:         actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.RunStrategy,
+								Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{
+									Spec: kubevirtv1.VirtualMachineInstanceSpec{
+										Domain: kubevirtv1.DomainSpec{
+											CPU: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.CPU,
+											Devices: kubevirtv1.Devices{
+												Disks: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.Disks,
+												Interfaces: []kubevirtv1.Interface{
+													{
+														Name: networkAttachmentDefinition.Name,
+														InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
+															Bridge: &kubevirtv1.InterfaceBridge{},
+														},
+													},
+												},
+											},
+											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
+										},
+										EvictionStrategy: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.EvictionStrategy,
+										Networks: []kubevirtv1.Network{
+											{
+												Name: networkAttachmentDefinition.Name,
+												NetworkSource: kubevirtv1.NetworkSource{
+													Multus: &kubevirtv1.MultusNetwork{
+														Default:     true,
+														NetworkName: networkAttachmentDefinition.Name,
+													},
+												},
+											},
+										},
+										Volumes: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Volumes,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
 }
