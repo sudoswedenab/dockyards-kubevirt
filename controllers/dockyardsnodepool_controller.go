@@ -348,6 +348,44 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
+func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsCluster *dockyardsv1.Cluster, configPatches []bootstrapv1.ConfigPatches) ([]bootstrapv1.ConfigPatches, error) {
+	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
+		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
+		if err != nil {
+			return nil, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/podSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
+		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
+		if err != nil {
+			return nil, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/cluster/network/serviceSubnets",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	return configPatches, nil
+}
+
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -393,38 +431,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		configPatches = append(configPatches, configPatch)
 	}
 
-	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
-		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/podSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
-	}
-
-	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
-		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/serviceSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
+	configPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlane, func() error {
@@ -493,40 +502,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 		},
 	}
 
-	configPatches := []bootstrapv1.ConfigPatches{}
-
-	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
-		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/podSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
-	}
-
-	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
-		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/serviceSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
+	configPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, []bootstrapv1.ConfigPatches{})
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosConfigTemplate, func() error {
