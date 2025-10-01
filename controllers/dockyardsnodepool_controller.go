@@ -305,7 +305,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 					Name: networkAttachmentDefinition.Name,
 					NetworkSource: kubevirtv1.NetworkSource{
 						Multus: &kubevirtv1.MultusNetwork{
-							NetworkName: networkAttachmentDefinition.Name,
+							NetworkName: networkAttachmentDefinition.Namespace + "/" + networkAttachmentDefinition.Name,
 							Default:     hasLabel,
 						},
 					},

@@ -1381,7 +1381,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 												Name: networkAttachmentDefinition.Name,
 												NetworkSource: kubevirtv1.NetworkSource{
 													Multus: &kubevirtv1.MultusNetwork{
-														NetworkName: networkAttachmentDefinition.Name,
+														NetworkName: networkAttachmentDefinition.Namespace + "/" + networkAttachmentDefinition.Name,
 													},
 												},
 											},
@@ -1488,7 +1488,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 												NetworkSource: kubevirtv1.NetworkSource{
 													Multus: &kubevirtv1.MultusNetwork{
 														Default:     true,
-														NetworkName: networkAttachmentDefinition.Name,
+														NetworkName: networkAttachmentDefinition.Namespace + "/" + networkAttachmentDefinition.Name,
 													},
 												},
 											},
