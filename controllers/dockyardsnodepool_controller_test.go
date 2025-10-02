@@ -863,7 +863,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		raw, err := json.Marshal(r.ValidNodeIPSubnets)
+		raw, err := json.Marshal(map[string]any{
+			"validSubnets": r.ValidNodeIPSubnets,
+		})
 		if err != nil {
 			t.Fatal(err)
 
@@ -885,7 +887,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 							},
 							{
 								Op:   "replace",
-								Path: "/machine/kubelet/nodeIP/validSubnets",
+								Path: "/machine/kubelet/nodeIP",
 								Value: apiextensionsv1.JSON{
 									Raw: raw,
 								},

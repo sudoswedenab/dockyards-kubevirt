@@ -393,14 +393,16 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 	}
 
 	if len(r.ValidNodeIPSubnets) > 0 {
-		raw, err := json.Marshal(r.ValidNodeIPSubnets)
+		raw, err := json.Marshal(map[string]any{
+			"validSubnets": r.ValidNodeIPSubnets,
+		})
 		if err != nil {
 			return nil, err
 		}
 
 		configPatch := bootstrapv1.ConfigPatches{
 			Op:   "replace",
-			Path: "/machine/kubelet/nodeIP/validSubnets",
+			Path: "/machine/kubelet/nodeIP",
 			Value: apiextensionsv1.JSON{
 				Raw: raw,
 			},
