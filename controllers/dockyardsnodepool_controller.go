@@ -559,6 +559,12 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
+		conditions.MarkFalse(dockyardsNodePool, MachineDeploymentReconciledCondition, WaitingForClusterEndpointReason, "")
+
+		return ctrl.Result{}, nil
+	}
+
 	machineDeployment := clusterv1.MachineDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dockyardsNodePool.Name,
