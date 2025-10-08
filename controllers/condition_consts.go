@@ -45,3 +45,10 @@ const (
 
 	WaitingForListenerHostnameReason = "WaitingForListenerHostname"
 )
+
+const (
+	IngressWorkloadReconciledCondition = "IngressWorkloadReconciled"
+
+	WaitingForGatewayAddressReason = "WaitingForGatewayAddress"
+	ErrorReconcilingReason         = "ErrorReconciling"
+)

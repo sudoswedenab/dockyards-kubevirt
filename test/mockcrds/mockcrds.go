@@ -37,6 +37,7 @@ var (
 	TalosControlPlane       = mockCRD("TalosControlPlane", "taloscontrolplanes", controlplanev1.GroupVersion.Group, controlplanev1.GroupVersion.Version)
 	CAPICluster             = mockCRD(clusterv1.ClusterKind, "clusters", clusterv1.GroupVersion.Group, clusterv1.GroupVersion.Version)
 	TalosConfigTemplate     = mockCRD("TalosConfigTemplate", "talosconfigtemplates", bootstrapv1.GroupVersion.Group, bootstrapv1.GroupVersion.Version)
+	DockyardsWorkload       = mockCRD(dockyardsv1.WorkloadKind, "workloads", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 
 	CRDs = []*apiextensionsv1.CustomResourceDefinition{
 		DockyardsNodePool,
@@ -48,6 +49,7 @@ var (
 		TalosControlPlane,
 		CAPICluster,
 		TalosConfigTemplate,
+		DockyardsWorkload,
 	}
 
 	NetworkAttachmentDefinition = mockCRD("NetworkAttachmentDefinition", "network-attachment-definitions", networkv1.SchemeGroupVersion.Group, networkv1.SchemeGroupVersion.Version)

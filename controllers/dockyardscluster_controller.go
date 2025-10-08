@@ -15,6 +15,7 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/netip"
@@ -46,6 +47,7 @@ type DockyardsClusterReconciler struct {
 
 	GatewayParentReference gatewayapiv1.ParentReference
 	DockyardsNamespace     string
+	EnableWorkloadIngress  bool
 }
 
 func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -149,40 +151,43 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, doc
 }
 
 func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx)
+	input := map[string]any{}
 
-	var gatewayIP string
-	for _, address := range gateway.Status.Addresses {
-		if address.Type == nil || *address.Type != gatewayapiv1.IPAddressType {
-			continue
+	if r.EnableWorkloadIngress {
+		var gatewayIP string
+		for _, address := range gateway.Status.Addresses {
+			if address.Type == nil || *address.Type != gatewayapiv1.IPAddressType {
+				continue
+			}
+
+			addr, err := netip.ParseAddr(address.Value)
+			if err != nil {
+				continue
+			}
+
+			if !addr.Is4() {
+				continue
+			}
+
+			gatewayIP = address.Value
 		}
 
-		addr, err := netip.ParseAddr(address.Value)
-		if err != nil {
-			continue
+		if gatewayIP == "" {
+			conditions.MarkFalse(dockyardsCluster, IngressWorkloadReconciledCondition, WaitingForGatewayAddressReason, "")
+
+			return ctrl.Result{}, nil
 		}
-
-		if !addr.Is4() {
-			continue
+		input["service"] = map[string]any{
+			"loadBalancerIP": gatewayIP,
 		}
-
-		gatewayIP = address.Value
-	}
-
-	if gatewayIP == "" {
-		logger.Info("ignoring ingress-nginx for dockyards cluster without gateway ip")
-
-		return ctrl.Result{}, nil
 	}
 
 	name := dockyardsCluster.Name + "-ingress-nginx"
 
-	raw, err := json.Marshal(map[string]any{
-		"service": map[string]any{
-			"loadBalancerIP": gatewayIP,
-		},
-	})
+	raw, err := json.Marshal(input)
 	if err != nil {
+		conditions.MarkFalse(dockyardsCluster, IngressWorkloadReconciledCondition, ErrorReconcilingReason, "%s", err)
+
 		return ctrl.Result{}, err
 	}
 
@@ -193,7 +198,7 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 		},
 	}
 
-	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &workload, func() error {
+	_, err = controllerutil.CreateOrPatch(ctx, r.Client, &workload, func() error {
 		workload.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: dockyardsv1.GroupVersion.String(),
@@ -217,17 +222,21 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 			Namespace: &r.DockyardsNamespace,
 		}
 
-		workload.Spec.Input = &apiextensionsv1.JSON{
-			Raw: raw,
+		if !bytes.Equal(raw, []byte("{}")) {
+			workload.Spec.Input = &apiextensionsv1.JSON{
+				Raw: raw,
+			}
 		}
 
 		return nil
 	})
 	if err != nil {
+		conditions.MarkFalse(dockyardsCluster, IngressWorkloadReconciledCondition, ErrorReconcilingReason, "%s", err)
+
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("reconciled ingress-nginx workload", "result", operationResult)
+	conditions.MarkTrue(dockyardsCluster, IngressWorkloadReconciledCondition, dockyardsv1.ReadyCondition, "")
 
 	return ctrl.Result{}, nil
 }
