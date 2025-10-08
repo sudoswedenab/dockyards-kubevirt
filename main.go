@@ -47,6 +47,7 @@ func main() {
 	var dataVolumeStorageClassName string
 	var enableMultus bool
 	var validNodeIPSubnets []string
+	var enableWorkloadIngress bool
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
@@ -54,6 +55,7 @@ func main() {
 	pflag.StringVar(&dataVolumeStorageClassName, "data-volume-storage-class-name", "rook-ceph-block", "data volume storage class name")
 	pflag.BoolVar(&enableMultus, "enable-multus", false, "enable multus (experimental)")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
+	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -153,6 +155,7 @@ func main() {
 		Client:                 mgr.GetClient(),
 		GatewayParentReference: gatewayParentReference,
 		DockyardsNamespace:     dockyardsNamespace,
+		EnableWorkloadIngress:  enableWorkloadIngress,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards cluster reconciler")
@@ -160,13 +163,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = (&controllers.DockyardsWorkloadReconciler{
-		Client:                 mgr.GetClient(),
-		GatewayParentReference: gatewayParentReference,
-		ClusterCache:           clusterCache,
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating dockyards deployment reconciler")
+	if enableWorkloadIngress {
+		err = (&controllers.DockyardsWorkloadReconciler{
+			Client:                 mgr.GetClient(),
+			GatewayParentReference: gatewayParentReference,
+			ClusterCache:           clusterCache,
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards deployment reconciler")
+		}
 	}
 
 	err = (&controllers.DockyardsNodeReconciler{
