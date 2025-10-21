@@ -20,10 +20,10 @@ import (
 	"os"
 	"testing"
 
-	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -179,7 +179,7 @@ func TestDockyardsReleaseReconciler_ReconcileDataVolume(t *testing.T) {
 					AccessModes: []corev1.PersistentVolumeAccessMode{
 						corev1.ReadWriteMany,
 					},
-					Resources: corev1.ResourceRequirements{
+					Resources: corev1.VolumeResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceStorage: resource.MustParse("2Gi"),
 						},
