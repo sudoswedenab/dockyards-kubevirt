@@ -19,9 +19,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/netip"
+	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
+	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -47,6 +49,7 @@ type DockyardsClusterReconciler struct {
 
 	GatewayParentReference gatewayapiv1.ParentReference
 	DockyardsNamespace     string
+	DockyardsConfig        *dyconfig.DockyardsConfig
 	EnableWorkloadIngress  bool
 }
 
@@ -92,7 +95,7 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 
-	result, err = r.reconcileAPIEndpoint(ctx, &dockyardsCluster, &gateway)
+	result, err = r.reconcileAPIEndpoint(ctx, &dockyardsCluster)
 	if err != nil {
 		return result, err
 	}
@@ -110,27 +113,10 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
-	var hostname string
-	for _, listener := range gateway.Spec.Listeners {
-		if listener.Hostname == nil ||
-			listener.AllowedRoutes == nil ||
-			listener.AllowedRoutes.Namespaces == nil ||
-			listener.AllowedRoutes.Namespaces.Selector == nil {
-			continue
-		}
-
-		partOf, hasLabel := listener.AllowedRoutes.Namespaces.Selector.MatchLabels["app.kubernetes.io/part-of"]
-		if !hasLabel {
-			continue
-		}
-
-		if partOf != "dockyards" {
-			continue
-		}
-
-		hostname = string(*listener.Hostname)
-	}
+func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+	url := r.DockyardsConfig.GetConfigKey(dyconfig.KeyExternalURL, "")
+	hostname := strings.TrimPrefix(url, "http://")
+	hostname = strings.TrimPrefix(hostname, "https://")
 
 	if hostname == "" {
 		conditions.MarkFalse(dockyardsCluster, APIEndpointReconciledCondition, WaitingForListenerHostnameReason, "")

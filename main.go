@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
+	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	"github.com/sudoswedenab/dockyards-kubevirt/controllers"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,6 +45,7 @@ func main() {
 	var gatewayNamespace string
 	var metricsBindAddress string
 	var dockyardsNamespace string
+	var configMap string
 	var dataVolumeStorageClassName string
 	var enableMultus bool
 	var validNodeIPSubnets []string
@@ -51,6 +53,7 @@ func main() {
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
+	pflag.StringVar(&configMap, "config-map", "dockyards-system", "ConfigMap name")
 	pflag.StringVar(&dockyardsNamespace, "dockyards-namespace", "dockyards-system", "dockyards namespace")
 	pflag.StringVar(&dataVolumeStorageClassName, "data-volume-storage-class-name", "rook-ceph-block", "data volume storage class name")
 	pflag.BoolVar(&enableMultus, "enable-multus", false, "enable multus (experimental)")
@@ -90,6 +93,11 @@ func main() {
 		slogr.Error(err, "error creating manager")
 
 		os.Exit(1)
+	}
+
+	dockyardsConfig, err := dyconfig.GetConfig(ctx, mgr.GetClient(), configMap, dockyardsNamespace)
+	if err != nil {
+		slogr.Error(err, "error getting dockyards config")
 	}
 
 	secretClient, err := client.New(mgr.GetConfig(), client.Options{
@@ -155,6 +163,7 @@ func main() {
 		Client:                 mgr.GetClient(),
 		GatewayParentReference: gatewayParentReference,
 		DockyardsNamespace:     dockyardsNamespace,
+		DockyardsConfig:        dockyardsConfig,
 		EnableWorkloadIngress:  enableWorkloadIngress,
 	}).SetupWithManager(mgr)
 	if err != nil {
