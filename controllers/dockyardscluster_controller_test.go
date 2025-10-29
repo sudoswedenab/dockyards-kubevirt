@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	corev1 "k8s.io/api/core/v1"
@@ -32,34 +33,18 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
-	r := DockyardsClusterReconciler{}
+	c := fake.NewFakeClient()
+	nsName := "test-ns"
 
 	t.Run("test valid listener", func(t *testing.T) {
-		gateway := gatewayapiv1.Gateway{
-			Spec: gatewayapiv1.GatewaySpec{
-				Listeners: []gatewayapiv1.Listener{
-					{
-						Hostname: ptr.To(gatewayapiv1.Hostname("testing.dockyards.dev")),
-						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
-							Namespaces: &gatewayapiv1.RouteNamespaces{
-								Selector: &metav1.LabelSelector{
-									MatchLabels: map[string]string{
-										"app.kubernetes.io/part-of": "dockyards",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
+		cmName := "test-cm"
 		cluster := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "testing",
@@ -67,7 +52,28 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 			},
 		}
 
-		_, err := r.reconcileAPIEndpoint(context.TODO(), &cluster, &gateway)
+		cm := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cmName,
+				Namespace: nsName,
+			},
+			Data: map[string]string{
+				dyconfig.KeyExternalURL: "http://testing.dockyards.dev",
+			},
+		}
+
+		err := c.Create(context.TODO(), &cm)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		conf, err := dyconfig.GetConfig(context.TODO(), c, cmName, nsName)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		r := DockyardsClusterReconciler{DockyardsConfig: conf}
+		_, err = r.reconcileAPIEndpoint(context.TODO(), &cluster)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,24 +103,6 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 	})
 
 	t.Run("test missing hostname", func(t *testing.T) {
-		gateway := gatewayapiv1.Gateway{
-			Spec: gatewayapiv1.GatewaySpec{
-				Listeners: []gatewayapiv1.Listener{
-					{
-						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
-							Namespaces: &gatewayapiv1.RouteNamespaces{
-								Selector: &metav1.LabelSelector{
-									MatchLabels: map[string]string{
-										"app.kubernetes.io/part-of": "dockyards",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
 		cluster := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "testing",
@@ -122,7 +110,29 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 			},
 		}
 
-		_, err := r.reconcileAPIEndpoint(context.TODO(), &cluster, &gateway)
+		cm := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "another-test",
+				Namespace: nsName,
+			},
+			Data: map[string]string{
+				dyconfig.KeyExternalURL: "",
+			},
+		}
+
+		err := c.Create(context.TODO(), &cm)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		conf, err := dyconfig.GetConfig(context.TODO(), c, "another-test", nsName)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		r := DockyardsClusterReconciler{DockyardsConfig: conf}
+
+		_, err = r.reconcileAPIEndpoint(context.TODO(), &cluster)
 		if err != nil {
 			t.Fatal(err)
 		}
