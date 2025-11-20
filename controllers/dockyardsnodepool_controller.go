@@ -445,7 +445,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 			"name": "none",
 		})
 		if err != nil {
-			return ctrl.Result{}, err
+			conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+			return ctrl.Result{}, nil
 		}
 
 		configPatch := bootstrapv1.ConfigPatches{
@@ -461,7 +463,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 	configPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches)
 	if err != nil {
-		return ctrl.Result{}, err
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, nil
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlane, func() error {
@@ -489,7 +493,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		return nil
 	})
 	if err != nil {
-		return ctrl.Result{}, err
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, nil
 	}
 
 	logger.Info("reconciled talos control plane", "result", operationResult)
