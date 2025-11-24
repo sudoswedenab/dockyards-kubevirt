@@ -226,10 +226,12 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 
 	ignoreFields := cmpopts.IgnoreFields(metav1.ObjectMeta{}, "UID", "CreationTimestamp", "ManagedFields", "ResourceVersion", "Generation")
 
+	dockyardsConfig := dyconfig.DefaultingConfig{}
+
 	t.Run("test workload", func(t *testing.T) {
 		r := DockyardsClusterReconciler{
-			Client:             mgr.GetClient(),
-			DockyardsNamespace: "dockyards-testing",
+			Client:          mgr.GetClient(),
+			DockyardsConfig: &dockyardsConfig,
 		}
 
 		cluster := dockyardsv1.Cluster{
@@ -274,7 +276,7 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 				WorkloadTemplateRef: &corev1.TypedObjectReference{
 					Kind:      dockyardsv1.WorkloadTemplateKind,
 					Name:      "ingress-nginx",
-					Namespace: &r.DockyardsNamespace,
+					Namespace: ptr.To("dockyards-public"),
 				},
 			},
 		}
@@ -293,8 +295,8 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 	t.Run("test workload ingress", func(t *testing.T) {
 		r := DockyardsClusterReconciler{
 			Client:                mgr.GetClient(),
-			DockyardsNamespace:    "dockyards-testing",
 			EnableWorkloadIngress: true,
+			DockyardsConfig:       &dockyardsConfig,
 		}
 
 		cluster := dockyardsv1.Cluster{
@@ -348,7 +350,7 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 				WorkloadTemplateRef: &corev1.TypedObjectReference{
 					Kind:      dockyardsv1.WorkloadTemplateKind,
 					Name:      "ingress-nginx",
-					Namespace: &r.DockyardsNamespace,
+					Namespace: ptr.To("dockyards-public"),
 				},
 				Input: &apiextensionsv1.JSON{
 					Raw: []byte(`{"service":{"loadBalancerIP":"1.2.3.4"}}`),

@@ -49,7 +49,7 @@ type DockyardsClusterReconciler struct {
 
 	GatewayParentReference gatewayapiv1.ParentReference
 	DockyardsNamespace     string
-	DockyardsConfig        *dyconfig.DockyardsConfig
+	DockyardsConfig        dyconfig.DockyardsConfigReader
 	EnableWorkloadIngress  bool
 }
 
@@ -184,6 +184,8 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 		},
 	}
 
+	publicNamespace := r.DockyardsConfig.GetConfigKey(dyconfig.KeyPublicNamespace, "dockyards-public")
+
 	_, err = controllerutil.CreateOrPatch(ctx, r.Client, &workload, func() error {
 		workload.OwnerReferences = []metav1.OwnerReference{
 			{
@@ -205,7 +207,7 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 		workload.Spec.WorkloadTemplateRef = &corev1.TypedObjectReference{
 			Kind:      dockyardsv1.WorkloadTemplateKind,
 			Name:      "ingress-nginx",
-			Namespace: &r.DockyardsNamespace,
+			Namespace: &publicNamespace,
 		}
 
 		if !bytes.Equal(raw, []byte("{}")) {

@@ -278,8 +278,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/sudoswedenab/dockyards-backend/api v0.0.0-20251029115315-e64cd09fbc8b h1:0q1+k0ihtUEKVO6Ob9L3sfInMODPme8FnK4+hazBomo=
-github.com/sudoswedenab/dockyards-backend/api v0.0.0-20251029115315-e64cd09fbc8b/go.mod h1:SgDePsi3cAq4MS09YfDBg4wVp1nVpPUaF0oyyPrUUNY=
+github.com/sudoswedenab/dockyards-backend/api v0.0.0-20251124115751-4bc3830824b2 h1:vTd6idJVS/9bMLsrkF6DbkxsWB6mHxiETnfGYD1ayJU=
+github.com/sudoswedenab/dockyards-backend/api v0.0.0-20251124115751-4bc3830824b2/go.mod h1:SgDePsi3cAq4MS09YfDBg4wVp1nVpPUaF0oyyPrUUNY=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
