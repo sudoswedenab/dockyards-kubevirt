@@ -108,7 +108,7 @@ func (r *DockyardsReleaseReconciler) reconcileDataVolume(ctx context.Context, re
 			},
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8Gi"),
 				},
 			},
 			VolumeMode: ptr.To(corev1.PersistentVolumeBlock),

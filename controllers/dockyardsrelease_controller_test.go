@@ -181,7 +181,7 @@ func TestDockyardsReleaseReconciler_ReconcileDataVolume(t *testing.T) {
 					},
 					Resources: corev1.VolumeResourceRequirements{
 						Requests: corev1.ResourceList{
-							corev1.ResourceStorage: resource.MustParse("2Gi"),
+							corev1.ResourceStorage: resource.MustParse("8Gi"),
 						},
 					},
 					StorageClassName: &dataVolumeStorageClassName,
