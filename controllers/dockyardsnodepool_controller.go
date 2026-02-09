@@ -24,6 +24,8 @@ import (
 	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
+	"gopkg.in/yaml.v3"
+	talosv1 "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
@@ -438,6 +440,42 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 				Raw: []byte("[" + strconv.Quote(dockyardsCluster.Status.APIEndpoint.Host) + "]"),
 			},
 		},
+	}
+
+	if dockyardsCluster.Spec.AuthenticationConfig != nil {
+		content, err := yaml.Marshal(dockyardsCluster.Spec.AuthenticationConfig)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		machineFile, err := json.Marshal(talosv1.MachineFile{
+			FileContent: string(content),
+			FilePermissions: 0o444,
+			FilePath: "/authentication-config.yaml",
+			FileOp: "overwrite",
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		configPatches = append(configPatches, bootstrapv1.ConfigPatches{
+			Op: "append",
+			Path: "/machine/files",
+			Value: apiextensionsv1.JSON{Raw: machineFile},
+		})
+
+		extraArgs, err := json.Marshal(map[string]string{
+			"--authentication-config": "/authentication-config.yaml",
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		configPatches = append(configPatches, bootstrapv1.ConfigPatches{
+			Op: "replace",
+			Path: "/cluster/apiServer/extraArgs",
+			Value: apiextensionsv1.JSON{Raw: extraArgs},
+		})
 	}
 
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
