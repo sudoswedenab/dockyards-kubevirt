@@ -33,47 +33,26 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
-	c := fake.NewFakeClient()
-	nsName := "test-ns"
-
 	t.Run("test valid listener", func(t *testing.T) {
-		cmName := "test-cm"
+		config := dyconfig.NewFakeConfigManager(map[string]string{
+			string(dyconfig.KeyExternalURL): "http://testing.dockyards.dev",
+		})
+
+		r := DockyardsClusterReconciler{DockyardsConfig: config}
+
 		cluster := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "testing",
 				Name:      "test",
 			},
 		}
-
-		cm := corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      cmName,
-				Namespace: nsName,
-			},
-			Data: map[string]string{
-				dyconfig.KeyExternalURL: "http://testing.dockyards.dev",
-			},
-		}
-
-		err := c.Create(context.TODO(), &cm)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		conf, err := dyconfig.GetConfig(context.TODO(), c, cmName, nsName)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		r := DockyardsClusterReconciler{DockyardsConfig: conf}
-		_, err = r.reconcileAPIEndpoint(context.TODO(), &cluster)
+		_, err := r.reconcileAPIEndpoint(context.TODO(), &cluster)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -103,6 +82,12 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 	})
 
 	t.Run("test missing hostname", func(t *testing.T) {
+		config := dyconfig.NewFakeConfigManager(map[string]string{
+			string(dyconfig.KeyExternalURL): "",
+		})
+
+		r := DockyardsClusterReconciler{DockyardsConfig: config}
+
 		cluster := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "testing",
@@ -110,29 +95,7 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 			},
 		}
 
-		cm := corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "another-test",
-				Namespace: nsName,
-			},
-			Data: map[string]string{
-				dyconfig.KeyExternalURL: "",
-			},
-		}
-
-		err := c.Create(context.TODO(), &cm)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		conf, err := dyconfig.GetConfig(context.TODO(), c, "another-test", nsName)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		r := DockyardsClusterReconciler{DockyardsConfig: conf}
-
-		_, err = r.reconcileAPIEndpoint(context.TODO(), &cluster)
+		_, err := r.reconcileAPIEndpoint(context.TODO(), &cluster)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -226,12 +189,12 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 
 	ignoreFields := cmpopts.IgnoreFields(metav1.ObjectMeta{}, "UID", "CreationTimestamp", "ManagedFields", "ResourceVersion", "Generation")
 
-	dockyardsConfig := dyconfig.DefaultingConfig{}
+	dockyardsConfig := dyconfig.NewFakeConfigManager(map[string]string{})
 
 	t.Run("test workload", func(t *testing.T) {
 		r := DockyardsClusterReconciler{
 			Client:          mgr.GetClient(),
-			DockyardsConfig: &dockyardsConfig,
+			DockyardsConfig: dockyardsConfig,
 		}
 
 		cluster := dockyardsv1.Cluster{
@@ -296,7 +259,7 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 		r := DockyardsClusterReconciler{
 			Client:                mgr.GetClient(),
 			EnableWorkloadIngress: true,
-			DockyardsConfig:       &dockyardsConfig,
+			DockyardsConfig:       dockyardsConfig,
 		}
 
 		cluster := dockyardsv1.Cluster{

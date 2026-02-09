@@ -44,7 +44,7 @@ func main() {
 	var gatewayName string
 	var gatewayNamespace string
 	var metricsBindAddress string
-	var dockyardsNamespace string
+	var dockyardsSystemNamespace string
 	var configMap string
 	var dataVolumeStorageClassName string
 	var enableMultus bool
@@ -54,7 +54,7 @@ func main() {
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
 	pflag.StringVar(&configMap, "config-map", "dockyards-system", "ConfigMap name")
-	pflag.StringVar(&dockyardsNamespace, "dockyards-namespace", "dockyards-system", "dockyards namespace")
+	pflag.StringVar(&dockyardsSystemNamespace, "dockyards-namespace", "dockyards-system", "dockyards system namespace")
 	pflag.StringVar(&dataVolumeStorageClassName, "data-volume-storage-class-name", "rook-ceph-block", "data volume storage class name")
 	pflag.BoolVar(&enableMultus, "enable-multus", false, "enable multus (experimental)")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
@@ -65,8 +65,9 @@ func main() {
 	defer stop()
 
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
-	slogr := logr.FromSlogHandler(handler)
+	logger := slog.New(handler)
 
+	slogr := logr.FromSlogHandler(logger.Handler())
 	ctrl.SetLogger(slogr)
 
 	cfg, err := config.GetConfig()
@@ -95,14 +96,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	configClient, err := client.New(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		slogr.Error(err, "error creating new controller client")
-
-		os.Exit(1)
-	}
-
-	dockyardsConfig, err := dyconfig.GetConfig(ctx, configClient, configMap, dockyardsNamespace)
+	configManagerOptions := []dyconfig.ConfigManagerOption{
+        dyconfig.WithLogger(logger),
+    }
+    dockyardsConfig, err := dyconfig.NewConfigManager(mgr, client.ObjectKey{Namespace: dockyardsSystemNamespace, Name: configMap}, configManagerOptions...)
 	if err != nil {
 		slogr.Error(err, "error getting dockyards config")
 
@@ -171,7 +168,7 @@ func main() {
 	err = (&controllers.DockyardsClusterReconciler{
 		Client:                 mgr.GetClient(),
 		GatewayParentReference: gatewayParentReference,
-		DockyardsNamespace:     dockyardsNamespace,
+		DockyardsNamespace:     dockyardsSystemNamespace,
 		DockyardsConfig:        dockyardsConfig,
 		EnableWorkloadIngress:  enableWorkloadIngress,
 	}).SetupWithManager(mgr)
