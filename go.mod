@@ -1,6 +1,6 @@
 module github.com/sudoswedenab/dockyards-kubevirt
 
-go 1.24.1
+go 1.25.3
 
 require (
 	github.com/fluxcd/pkg/runtime v0.46.0
@@ -10,7 +10,7 @@ require (
 	github.com/siderolabs/cluster-api-bootstrap-provider-talos v0.6.5
 	github.com/siderolabs/cluster-api-control-plane-provider-talos v0.5.6
 	github.com/spf13/pflag v1.0.5
-	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20251124115751-4bc3830824b2
+	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20260205083717-f0893f893e24
 	k8s.io/api v0.32.5
 	k8s.io/apiextensions-apiserver v0.32.5
 	k8s.io/apimachinery v0.32.5

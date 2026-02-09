@@ -49,7 +49,7 @@ type DockyardsClusterReconciler struct {
 
 	GatewayParentReference gatewayapiv1.ParentReference
 	DockyardsNamespace     string
-	DockyardsConfig        dyconfig.DockyardsConfigReader
+	DockyardsConfig        *dyconfig.ConfigManager
 	EnableWorkloadIngress  bool
 }
 
@@ -114,7 +114,7 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 }
 
 func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
-	url := r.DockyardsConfig.GetConfigKey(dyconfig.KeyExternalURL, "")
+	url := r.DockyardsConfig.GetValueOrDefault(dyconfig.KeyExternalURL, "")
 	hostname := strings.TrimPrefix(url, "http://")
 	hostname = strings.TrimPrefix(hostname, "https://")
 
@@ -184,7 +184,7 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 		},
 	}
 
-	publicNamespace := r.DockyardsConfig.GetConfigKey(dyconfig.KeyPublicNamespace, "dockyards-public")
+	publicNamespace := r.DockyardsConfig.GetValueOrDefault(dyconfig.KeyPublicNamespace, "dockyards-public")
 
 	_, err = controllerutil.CreateOrPatch(ctx, r.Client, &workload, func() error {
 		workload.OwnerReferences = []metav1.OwnerReference{
