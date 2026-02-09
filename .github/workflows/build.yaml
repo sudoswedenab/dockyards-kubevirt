@@ -21,7 +21,7 @@ permissions:
   id-token: write
   contents: read
 jobs:
-  buildah:
+  build:
     runs-on: ubuntu-latest
     steps:
       - id: prep
@@ -31,36 +31,10 @@ jobs:
           ts=$(date +%s)
           echo "buildid=${branch}-${sha}-${ts}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-go@v5.5.0
-        with:
-          go-version-file: go.mod
-      - uses: redhat-actions/buildah-build@v2.13
-        id: buildah-build
-        with:
-          containerfiles: |
-            Containerfile
-          image: sudosweden/dockyards-kubevirt
-          tags: ${{steps.prep.outputs.buildid}}
-      - uses: aws-actions/configure-aws-credentials@v4.2.1
+      - uses: sudoswedenab/sudo-actions/build-push@main
         with:
           aws-region: us-east-1
-          role-to-assume: arn:aws:iam::075899289117:role/GithubActionsDockyardsKubevirtPublic
-      - uses: aws-actions/amazon-ecr-login@v2.0.1
-        id: amazon-ecr-login
-        with:
+          image: sudosweden/dockyards-kubevirt
           registry-type: public
-      - uses: redhat-actions/push-to-registry@v2.8
-        id: push-to-registry
-        with:
-          image: ${{steps.buildah-build.outputs.image}}
-          tags: ${{steps.buildah-build.outputs.tags}}
-          registry: ${{steps.amazon-ecr-login.outputs.registry}}
-      - uses: cue-lang/setup-cue@v1.0.1
-        with:
-          version: v0.13.0
-      - uses: fluxcd/flux2/action@v2.5.1
-        with:
-          version: v2.4.0
-      - run: |
-          cue export hack/kustomization.cue --inject "name=${{steps.amazon-ecr-login.outputs.registry}}/${{steps.buildah-build.outputs.image}}" --inject "tag=${{steps.prep.outputs.buildid}}@${{steps.push-to-registry.outputs.digest}}" --out yaml --outfile config/kustomization.yaml
-          flux push artifact "oci://${{steps.amazon-ecr-login.outputs.registry}}/${{steps.buildah-build.outputs.image-with-tag}}-manifests" --path config --source "${{github.repositoryUrl}}" --revision "${{github.ref_name}}@sha1:${{github.sha}}"
+          role-to-assume: arn:aws:iam::075899289117:role/GithubActionsDockyardsKubevirtPublic
+          tag: ${{ steps.prep.outputs.buildid }}
