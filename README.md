@@ -3,75 +3,64 @@
 `dockyards-kubevirt` bridges the Dockyards backend with a KubeVirt/Talos provisioning stack. It watches all of the Dockyards CRs (Cluster, NodePool, Release, Workload, Node, Organization) that describe a customer environment and reconciles the matching Cluster API, Talos, and Gateway API resources so a workload cluster becomes reachable through the shared Gateway.
 
 ## Component diagram
+
 ```mermaid
-flowchart LR
-    User
-    DockyardsBackend["dockyards-backend"]
-    DockyardsKubevirt["dockyards-kubevirt"]
-    NGINXController["ingress-nginx-controller"]
-    WorkloadFlow@{ shape: cloud, label: "Workload flow" }
-    KubevirtFlow@{ shape: cloud, label: "Kubevirt flow" }
-    ContourFlow@{ shape: cloud, label: "Project Contour flow"}
-    DockyardsCluster@{shape: card, label: "dockyards.io/v1alpha3 Cluster"}
-    DockyardsNodePool@{shape: card, label: "dockyards.io/v1alpha3 NodePool"}
-    DockyardsRelease@{ shape: card, label: "dockyards.io/v1alpha3 Release"}
-    DockyardsWorkload@{ shape: card, label: "dockyards.io/v1alpha3 Workload"}
-    DockyardsNode@{ shape: card, label: "dockyards.io/v1alpha3 Node"}
-    LoadBalancerService@{ shape: card, label: "core/v1 Service"}
-    ClusterGatewayService@{ shape: card, label: "core/v1 Service"}
+flowchart TB
+    User@{shape: rect, label: "User"}
+    DockyardsBackend@{shape: rect, label: "dockyards-backend"}
+    DockyardsKubevirt@{shape: rect, label: "dockyards-kubevirt"}
+    NGINXController@{shape: rect, label: "ingress-nginx-controller"}
+    WorkloadFlow@{shape: cloud, label: "Workload flow"}
+    KubevirtFlow@{shape: cloud, label: "Kubevirt flow"}
+    ContourFlow@{shape: cloud, label: "Project Contour flow"}
+    DockyardsCluster@{shape: doc, label: "dockyards.io/v1alpha3 Cluster"}
+    DockyardsNodePool@{shape: doc, label: "dockyards.io/v1alpha3 NodePool"}
+    DockyardsRelease@{shape: doc, label: "dockyards.io/v1alpha3 Release"}
+    DockyardsWorkload@{shape: doc, label: "dockyards.io/v1alpha3 Workload"}
+    DockyardsNode@{shape: doc, label: "dockyards.io/v1alpha3 Node"}
+    LoadBalancerService@{shape: doc, label: "core/v1 Service"}
+    ClusterGatewayService@{shape: doc, label: "core/v1 Service"}
+    WorkloadCluster@{shape: cloud, label: "Workload Cluster"}
 
     User -->|submits cluster request| DockyardsBackend
     DockyardsBackend -->|creates| DockyardsCluster
-
     DockyardsCluster -->|owns resources| DockyardsNodePool
     DockyardsCluster -->|binds ingress intent| DockyardsWorkload
     DockyardsCluster -->|defines nodes| DockyardsNode
     DockyardsCluster -->|is reconciled by| DockyardsKubevirt
-
     DockyardsNodePool -->|is reconciled by| DockyardsKubevirt
     DockyardsRelease -->|is reconciled by| DockyardsKubevirt
     DockyardsWorkload -->|is reconciled by| DockyardsKubevirt
-    DockyardsNode --> |is reconciled by| DockyardsKubevirt
-
-    DockyardsKubevirt --> |creates| ClusterGatewayService
-    DockyardsKubevirt ----> |triggers| ContourFlow
-    DockyardsKubevirt --> |triggers| KubevirtFlow
-    DockyardsKubevirt --> |triggers| WorkloadFlow
-
-    WorkloadFlow --> |reconciles| ingress-nginx
-    ContourFlow --> ClusterGatewayService
-    KubevirtFlow --> WorkloadCluster
-
+    DockyardsNode -->|is reconciled by| DockyardsKubevirt
+    DockyardsKubevirt -->|creates| ClusterGatewayService
+    DockyardsKubevirt ---->|triggers| ContourFlow
+    DockyardsKubevirt -->|triggers| KubevirtFlow
+    DockyardsKubevirt -->|triggers| WorkloadFlow
+    WorkloadFlow -->|reconciles| NGINXController
+    ContourFlow -->|reconciles| ClusterGatewayService
+    KubevirtFlow -->|drives| WorkloadCluster
     ClusterGatewayService -->|points to| LoadBalancerService
-
-
+    LoadBalancerService -->|backs| NGINXController
 
     subgraph Management Cluster
-        ClusterGatewayService
-
         subgraph dockyards-system
             DockyardsRelease
             DockyardsBackend
             DockyardsKubevirt
             WorkloadFlow
         end
-
         subgraph kubevirt
             KubevirtFlow
         end
-
         subgraph Project Contour
             ContourFlow
         end
-
-
         subgraph Organization
             DockyardsNode
             DockyardsNodePool
             DockyardsWorkload
             DockyardsCluster
             ClusterGatewayService
-
             subgraph WorkloadCluster
                 subgraph ingress-nginx
                     NGINXController
@@ -80,7 +69,6 @@ flowchart LR
             end
         end
     end
-
 ```
 
 The diagram highlights how the operator turns Dockyards CRs into Cluster API/KubeVirt/Talos artifacts, mirrors load balancer state from the remote workload cluster through a cluster cache, and wires the shared Gateway to the resulting services.
