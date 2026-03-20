@@ -50,6 +50,7 @@ func main() {
 	var enableMultus bool
 	var validNodeIPSubnets []string
 	var enableWorkloadIngress bool
+	var useBlockStorage bool
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
@@ -57,6 +58,7 @@ func main() {
 	pflag.StringVar(&dockyardsSystemNamespace, "dockyards-namespace", "dockyards-system", "dockyards system namespace")
 	pflag.StringVar(&dataVolumeStorageClassName, "data-volume-storage-class-name", "rook-ceph-block", "data volume storage class name")
 	pflag.BoolVar(&enableMultus, "enable-multus", false, "enable multus (experimental)")
+	pflag.BoolVar(&useBlockStorage, "use-block-storage", true, "use block storage")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
 	pflag.Parse()
@@ -97,9 +99,9 @@ func main() {
 	}
 
 	configManagerOptions := []dyconfig.ConfigManagerOption{
-        dyconfig.WithLogger(logger),
-    }
-    dockyardsConfig, err := dyconfig.NewConfigManager(mgr, client.ObjectKey{Namespace: dockyardsSystemNamespace, Name: configMap}, configManagerOptions...)
+		dyconfig.WithLogger(logger),
+	}
+	dockyardsConfig, err := dyconfig.NewConfigManager(mgr, client.ObjectKey{Namespace: dockyardsSystemNamespace, Name: configMap}, configManagerOptions...)
 	if err != nil {
 		slogr.Error(err, "error getting dockyards config")
 
@@ -148,6 +150,7 @@ func main() {
 		Client:                     mgr.GetClient(),
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		EnableMultus:               enableMultus,
+		UseBlockStorage:            useBlockStorage,
 		ValidNodeIPSubnets:         validNodeIPSubnets,
 	}).SetupWithManager(mgr)
 	if err != nil {
@@ -199,6 +202,7 @@ func main() {
 	err = (&controllers.DockyardsReleaseReconciler{
 		Client:                     mgr.GetClient(),
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
+		UseBlockStorage:            useBlockStorage,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards release reconciler")

@@ -163,6 +163,23 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	reconciler := DockyardsNodePoolReconciler{
 		Client:                     mgr.GetClient(),
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
+		UseBlockStorage:            true,
+	}
+
+	assertNonBlockVolumeMode := func(t *testing.T, volumeMode *corev1.PersistentVolumeMode) {
+		t.Helper()
+
+		if volumeMode == nil {
+			return
+		}
+
+		if *volumeMode == corev1.PersistentVolumeBlock {
+			t.Fatalf("expected non-block storage, got %q", *volumeMode)
+		}
+
+		if *volumeMode != corev1.PersistentVolumeFilesystem {
+			t.Fatalf("expected %q or nil, got %q", corev1.PersistentVolumeFilesystem, *volumeMode)
+		}
 	}
 
 	t.Run("test resources", func(t *testing.T) {
@@ -310,6 +327,51 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
+
+	t.Run("test resources without block storage", func(t *testing.T) {
+		nonBlockReconciler := DockyardsNodePoolReconciler{
+			Client:                     mgr.GetClient(),
+			DataVolumeStorageClassName: &dataVolumeStorageClassName,
+			UseBlockStorage:            false,
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-nonblock-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.NodePoolSpec{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU:     resource.MustParse("2"),
+					corev1.ResourceMemory:  resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8G"),
+				},
+			},
+		}
+
+		err := c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = nonBlockReconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Spec.PVC == nil {
+				t.Fatalf("expected data volume template %q to have pvc", dvt.Name)
+			}
+			assertNonBlockVolumeMode(t, dvt.Spec.PVC.VolumeMode)
 		}
 	})
 
@@ -508,6 +570,57 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
+
+	t.Run("test storage resources without block storage", func(t *testing.T) {
+		nonBlockReconciler := DockyardsNodePoolReconciler{
+			Client:                     mgr.GetClient(),
+			DataVolumeStorageClassName: &dataVolumeStorageClassName,
+			UseBlockStorage:            false,
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-nonblock-storage-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.NodePoolSpec{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU:     resource.MustParse("2"),
+					corev1.ResourceMemory:  resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8G"),
+				},
+				StorageResources: []dockyardsv1.NodePoolStorageResource{
+					{
+						Name:     "test",
+						Quantity: resource.MustParse("10Gi"),
+					},
+				},
+			},
+		}
+
+		err := c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = nonBlockReconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Spec.PVC == nil {
+				t.Fatalf("expected data volume template %q to have pvc", dvt.Name)
+			}
+			assertNonBlockVolumeMode(t, dvt.Spec.PVC.VolumeMode)
 		}
 	})
 }

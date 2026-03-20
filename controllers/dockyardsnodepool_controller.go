@@ -62,6 +62,7 @@ type DockyardsNodePoolReconciler struct {
 	DataVolumeStorageClassName *string
 	EnableMultus               bool
 	ValidNodeIPSubnets         []string
+	UseBlockStorage            bool
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -194,7 +195,6 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 							},
 						},
 						StorageClassName: storageClassName,
-						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
 					},
 					SourceRef: &cdiv1.DataVolumeSourceRef{
 						Kind:      "DataSource",
@@ -203,6 +203,12 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 					},
 				},
 			},
+		}
+
+		if r.UseBlockStorage {
+			for _, dvt := range dataVolumeTemplates {
+				dvt.Spec.PVC.VolumeMode = ptr.To(corev1.PersistentVolumeBlock)
+			}
 		}
 
 		disks := []kubevirtv1.Disk{
@@ -246,9 +252,12 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 							},
 						},
 						StorageClassName: storageClassName,
-						VolumeMode:       ptr.To(corev1.PersistentVolumeBlock),
 					},
 				},
+			}
+
+			if r.UseBlockStorage {
+				dataVolumeTemplate.Spec.PVC.VolumeMode = ptr.To(corev1.PersistentVolumeBlock)
 			}
 
 			dataVolumeTemplates = append(dataVolumeTemplates, dataVolumeTemplate)

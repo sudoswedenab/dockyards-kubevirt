@@ -101,9 +101,26 @@ func TestDockyardsReleaseReconciler_ReconcileDataVolume(t *testing.T) {
 
 	dataVolumeStorageClassName := "test-block"
 
+	assertNonBlockVolumeMode := func(t *testing.T, volumeMode *corev1.PersistentVolumeMode) {
+		t.Helper()
+
+		if volumeMode == nil {
+			return
+		}
+
+		if *volumeMode == corev1.PersistentVolumeBlock {
+			t.Fatalf("expected non-block storage, got %q", *volumeMode)
+		}
+
+		if *volumeMode != corev1.PersistentVolumeFilesystem {
+			t.Fatalf("expected %q or nil, got %q", corev1.PersistentVolumeFilesystem, *volumeMode)
+		}
+	}
+
 	reconciler := DockyardsReleaseReconciler{
 		Client:                     mgr.GetClient(),
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
+		UseBlockStorage:            true,
 	}
 
 	t.Run("test release", func(t *testing.T) {
@@ -227,5 +244,56 @@ func TestDockyardsReleaseReconciler_ReconcileDataVolume(t *testing.T) {
 		if !cmp.Equal(actualDataSource, expectedDataSource) {
 			t.Errorf("diff: %s", cmp.Diff(expectedDataSource, actualDataSource))
 		}
+	})
+
+	t.Run("test release without block storage", func(t *testing.T) {
+		nonBlockReconciler := DockyardsReleaseReconciler{
+			Client:                     mgr.GetClient(),
+			DataVolumeStorageClassName: &dataVolumeStorageClassName,
+			UseBlockStorage:            false,
+		}
+
+		release := dockyardsv1.Release{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-nonblock-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.ReleaseSpec{
+				Type: dockyardsv1.ReleaseTypeTalosInstaller,
+				Ranges: []string{
+					"v1.2.x",
+				},
+			},
+		}
+
+		err := c.Create(ctx, &release)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		release.Status.LatestVersion = "v1.2.3"
+		release.Status.LatestURL = ptr.To("http://localhost:1234/testing/openstack-amd64.raw.xz")
+
+		_, err = nonBlockReconciler.reconcileDataVolume(ctx, &release)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		objectKey := client.ObjectKey{
+			Name:      release.Name + "-" + release.Status.LatestVersion,
+			Namespace: release.Namespace,
+		}
+
+		var actualDataVolume cdiv1.DataVolume
+		err = c.Get(ctx, objectKey, &actualDataVolume)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if actualDataVolume.Spec.Storage == nil {
+			t.Fatalf("expected dataVolume.spec.storage to be set")
+		}
+
+		assertNonBlockVolumeMode(t, actualDataVolume.Spec.Storage.VolumeMode)
 	})
 }
