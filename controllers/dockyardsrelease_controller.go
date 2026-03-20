@@ -40,6 +40,7 @@ type DockyardsReleaseReconciler struct {
 	client.Client
 
 	DataVolumeStorageClassName *string
+	UseBlockStorage            bool
 }
 
 func (r *DockyardsReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -111,7 +112,10 @@ func (r *DockyardsReleaseReconciler) reconcileDataVolume(ctx context.Context, re
 					corev1.ResourceStorage: resource.MustParse("8Gi"),
 				},
 			},
-			VolumeMode: ptr.To(corev1.PersistentVolumeBlock),
+		}
+
+		if r.UseBlockStorage {
+			dataVolume.Spec.Storage.VolumeMode = ptr.To(corev1.PersistentVolumeBlock)
 		}
 
 		if r.DataVolumeStorageClassName != nil {
