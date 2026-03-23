@@ -30,6 +30,7 @@ import (
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1028,6 +1029,117 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
 		}
 	})
+
+	t.Run("test ntp servers", func(t *testing.T) {
+		reconcilerWithNTP := reconciler
+		reconcilerWithNTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
+			EnvVarNtpServers: " 193.41.26.2, time.cloudflare.com,193.41.26.2, ",
+		})
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cluster := clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      owner.Name,
+				Namespace: owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &cluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconcilerWithNTP.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual controlplanev1.TalosControlPlane
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ntpPatch, err := yaml.Marshal(timeSyncConfigDoc{
+			APIVersion: "v1alpha1",
+			Kind:       "TimeSyncConfig",
+			NTP: &timeSyncConfigNTP{
+				Servers: []string{"193.41.26.2", "time.cloudflare.com"},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := controlplanev1.TalosControlPlane{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: controlplanev1.TalosControlPlaneSpec{
+				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
+					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
+						GenerateType: "controlplane",
+						ConfigPatches: []bootstrapv1.ConfigPatches{
+							{
+								Op:   "replace",
+								Path: "/cluster/apiServer/certSANs",
+								Value: apiextensionsv1.JSON{
+									Raw: []byte("[" + strconv.Quote(owner.Status.APIEndpoint.Host) + "]"),
+								},
+							},
+						},
+						StrategicPatches: []string{
+							string(ntpPatch),
+						},
+						TalosVersion: "v1.7",
+					},
+				},
+				InfrastructureTemplate: corev1.ObjectReference{
+					APIVersion: providerv1.GroupVersion.String(),
+					Kind:       "KubevirtMachineTemplate",
+					Name:       nodePool.Name,
+					Namespace:  nodePool.Namespace,
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
 }
 
 func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) {
@@ -1297,6 +1409,80 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 									Raw: rawEnv,
 								},
 							},
+						},
+					},
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
+
+	t.Run("test ntp servers", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		r := DockyardsNodePoolReconciler{
+			Client: mgr.GetClient(),
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
+				EnvVarNtpServers: "193.41.26.2,time.cloudflare.com",
+			}),
+		}
+
+		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual bootstrapv1.TalosConfigTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ntpPatch, err := yaml.Marshal(timeSyncConfigDoc{
+			APIVersion: "v1alpha1",
+			Kind:       "TimeSyncConfig",
+			NTP: &timeSyncConfigNTP{
+				Servers: []string{"193.41.26.2", "time.cloudflare.com"},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := bootstrapv1.TalosConfigTemplate{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: bootstrapv1.TalosConfigTemplateSpec{
+				Template: bootstrapv1.TalosConfigTemplateResource{
+					Spec: bootstrapv1.TalosConfigSpec{
+						GenerateType: "worker",
+						TalosVersion: "v1.7",
+						StrategicPatches: []string{
+							string(ntpPatch),
 						},
 					},
 				},

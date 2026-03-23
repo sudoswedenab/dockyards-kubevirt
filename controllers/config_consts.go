@@ -14,12 +14,10 @@
 
 package controllers
 
-type timeSyncConfigNTP struct {
-	Servers []string `yaml:"servers,omitempty"`
-}
-
-type timeSyncConfigDoc struct {
-	APIVersion string             `yaml:"apiVersion"`
-	Kind       string             `yaml:"kind"`
-	NTP        *timeSyncConfigNTP `yaml:"ntp,omitempty"`
-}
+// TODO: consider smarter loading of vars based on app prefix
+const (
+	EnvVarNoProxy    = "dockyards-kubevirt.env.NO_PROXY"
+	EnvVarHttpProxy  = "dockyards-kubevirt.env.HTTP_PROXY"
+	EnvVarHttpsProxy = "dockyards-kubevirt.env.HTTPS_PROXY"
+	EnvVarNtpServers = "dockyards-kubevirt.ntp.servers"
+)
