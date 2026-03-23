@@ -27,6 +27,7 @@ import (
 	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
+	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	corev1 "k8s.io/api/core/v1"
@@ -164,6 +165,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		Client:                     mgr.GetClient(),
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		UseBlockStorage:            true,
+		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
 	}
 
 	assertNonBlockVolumeMode := func(t *testing.T, volumeMode *corev1.PersistentVolumeMode) {
@@ -335,6 +337,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			Client:                     mgr.GetClient(),
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
+			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
 		}
 
 		nodePool := dockyardsv1.NodePool{
@@ -578,6 +581,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			Client:                     mgr.GetClient(),
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
+			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
 		}
 
 		nodePool := dockyardsv1.NodePool{
@@ -689,7 +693,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 	}()
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client: mgr.GetClient(),
+		Client:          mgr.GetClient(),
+		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
 	}
 
 	t.Run("test network plugin", func(t *testing.T) {
@@ -963,6 +968,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				"192.168.0.0/16",
 				"fd00:192:168::/56",
 			},
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
 		}
 
 		_, err = r.reconcileTalosControlPlane(ctx, &nodePool, &owner)
@@ -1088,7 +1094,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 	}()
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client: mgr.GetClient(),
+		Client:          mgr.GetClient(),
+		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
 	}
 
 	t.Run("test empty owner", func(t *testing.T) {
@@ -1208,6 +1215,86 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 								Path: "/cluster/network/serviceSubnets",
 								Value: apiextensionsv1.JSON{
 									Raw: []byte("[" + strconv.Quote("10.112.0.0/12") + "]"),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+		}
+	})
+
+	t.Run("test proxy env vars", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rawEnv, err := json.Marshal(map[string]string{
+			"http_proxy":  "http://proxy.example.com:3128",
+			"https_proxy": "http://proxy.example.com:3128",
+			"no_proxy":    "localhost,127.0.0.1,.cluster.local",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		r := DockyardsNodePoolReconciler{
+			Client: mgr.GetClient(),
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
+				EnvVarHttpProxy:  "http://proxy.example.com:3128",
+				EnvVarHttpsProxy: "http://proxy.example.com:3128",
+				EnvVarNoProxy:    "localhost,127.0.0.1,.cluster.local",
+			}),
+		}
+
+		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual bootstrapv1.TalosConfigTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := bootstrapv1.TalosConfigTemplate{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: bootstrapv1.TalosConfigTemplateSpec{
+				Template: bootstrapv1.TalosConfigTemplateResource{
+					Spec: bootstrapv1.TalosConfigSpec{
+						GenerateType: "worker",
+						TalosVersion: "v1.7",
+						ConfigPatches: []bootstrapv1.ConfigPatches{
+							{
+								Op:   "replace",
+								Path: "/machine/env",
+								Value: apiextensionsv1.JSON{
+									Raw: rawEnv,
 								},
 							},
 						},
