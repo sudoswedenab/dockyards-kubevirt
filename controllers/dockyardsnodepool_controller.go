@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -27,6 +28,7 @@ import (
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -368,11 +370,15 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsCluster *dockyardsv1.Cluster, configPatches []bootstrapv1.ConfigPatches) ([]bootstrapv1.ConfigPatches, error) {
+func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
+	dockyardsCluster *dockyardsv1.Cluster,
+	configPatches []bootstrapv1.ConfigPatches,
+	strategicPatches []string,
+) ([]bootstrapv1.ConfigPatches, []string, error) {
 	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
 		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		configPatch := bootstrapv1.ConfigPatches{
@@ -389,7 +395,7 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
 		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		configPatch := bootstrapv1.ConfigPatches{
@@ -408,7 +414,7 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 			"validSubnets": r.ValidNodeIPSubnets,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		configPatch := bootstrapv1.ConfigPatches{
@@ -442,7 +448,7 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 	if len(envVar) > 0 {
 		raw, err := json.Marshal(envVar)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		configPatch := bootstrapv1.ConfigPatches{
@@ -456,7 +462,54 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 		configPatches = append(configPatches, configPatch)
 	}
 
-	return configPatches, nil
+	// Configure NTP servers using the Talos TimeSyncConfig document (Talos v1.12+).
+	//
+	// Example:
+	// apiVersion: v1alpha1
+	// kind: TimeSyncConfig
+	// ntp:
+	//   servers:
+	//     - time.cloudflare.com
+
+	nServers, found := r.DockyardsConfig.GetValueForKey(EnvVarNtpServers)
+	if found {
+		fields := strings.Split(nServers, ",")
+		ntpServers := make([]string, 0, len(fields))
+		seen := map[string]struct{}{}
+
+		for _, server := range fields {
+			server = strings.TrimSpace(server)
+			if server == "" {
+				continue
+			}
+
+			if _, ok := seen[server]; ok {
+				continue
+			}
+
+			seen[server] = struct{}{}
+			ntpServers = append(ntpServers, server)
+		}
+
+		if len(ntpServers) > 0 {
+			doc := timeSyncConfigDoc{
+				APIVersion: "v1alpha1",
+				Kind:       "TimeSyncConfig",
+				NTP: &timeSyncConfigNTP{
+					Servers: ntpServers,
+				},
+			}
+
+			raw, err := yaml.Marshal(doc)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			strategicPatches = append(strategicPatches, string(raw))
+		}
+	}
+
+	return configPatches, strategicPatches, nil
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
@@ -506,7 +559,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		configPatches = append(configPatches, configPatch)
 	}
 
-	configPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches)
+	var strategicPatches []string
+
+	configPatches, strategicPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches, strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
@@ -529,9 +584,10 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 		talosControlPlane.Spec.ControlPlaneConfig = controlplanev1.ControlPlaneConfig{
 			ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-				GenerateType:  "controlplane",
-				TalosVersion:  "v1.7",
-				ConfigPatches: configPatches,
+				GenerateType:     "controlplane",
+				TalosVersion:     "v1.7",
+				ConfigPatches:    configPatches,
+				StrategicPatches: strategicPatches,
 			},
 		}
 
@@ -581,7 +637,10 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 		},
 	}
 
-	configPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, []bootstrapv1.ConfigPatches{})
+	var configPatches []bootstrapv1.ConfigPatches
+	var strategicPatches []string
+
+	configPatches, strategicPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches, strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -591,6 +650,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 		talosConfigTemplate.Spec.Template.Spec.TalosVersion = "v1.7"
 
 		talosConfigTemplate.Spec.Template.Spec.ConfigPatches = configPatches
+		talosConfigTemplate.Spec.Template.Spec.StrategicPatches = strategicPatches
 
 		return nil
 	})
