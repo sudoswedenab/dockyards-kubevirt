@@ -25,6 +25,7 @@ import (
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
+	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -63,6 +64,7 @@ type DockyardsNodePoolReconciler struct {
 	EnableMultus               bool
 	ValidNodeIPSubnets         []string
 	UseBlockStorage            bool
+	DockyardsConfig            *dyconfig.ConfigManager
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -412,6 +414,40 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(dockyardsClus
 		configPatch := bootstrapv1.ConfigPatches{
 			Op:   "replace",
 			Path: "/machine/kubelet/nodeIP",
+			Value: apiextensionsv1.JSON{
+				Raw: raw,
+			},
+		}
+
+		configPatches = append(configPatches, configPatch)
+	}
+
+	envVar := map[string]string{}
+
+	noProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarNoProxy)
+	if found {
+		envVar["no_proxy"] = noProxy
+	}
+
+	httpProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarHttpProxy)
+	if found {
+		envVar["http_proxy"] = httpProxy
+	}
+
+	httpsProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarHttpsProxy)
+	if found {
+		envVar["https_proxy"] = httpsProxy
+	}
+
+	if len(envVar) > 0 {
+		raw, err := json.Marshal(envVar)
+		if err != nil {
+			return nil, err
+		}
+
+		configPatch := bootstrapv1.ConfigPatches{
+			Op:   "replace",
+			Path: "/machine/env",
 			Value: apiextensionsv1.JSON{
 				Raw: raw,
 			},

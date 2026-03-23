@@ -152,6 +152,7 @@ func main() {
 		EnableMultus:               enableMultus,
 		UseBlockStorage:            useBlockStorage,
 		ValidNodeIPSubnets:         validNodeIPSubnets,
+		DockyardsConfig:            dockyardsConfig,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")
