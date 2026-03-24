@@ -585,7 +585,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		talosControlPlane.Spec.ControlPlaneConfig = controlplanev1.ControlPlaneConfig{
 			ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 				GenerateType:     "controlplane",
-				TalosVersion:     "v1.7",
+				TalosVersion:     "v1.12",
 				ConfigPatches:    configPatches,
 				StrategicPatches: strategicPatches,
 			},
@@ -647,7 +647,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosConfigTemplate, func() error {
 		talosConfigTemplate.Spec.Template.Spec.GenerateType = "worker"
-		talosConfigTemplate.Spec.Template.Spec.TalosVersion = "v1.7"
+		talosConfigTemplate.Spec.Template.Spec.TalosVersion = "v1.12"
 
 		talosConfigTemplate.Spec.Template.Spec.ConfigPatches = configPatches
 		talosConfigTemplate.Spec.Template.Spec.StrategicPatches = strategicPatches

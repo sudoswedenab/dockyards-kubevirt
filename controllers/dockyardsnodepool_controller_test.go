@@ -783,7 +783,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 								},
 							},
 						},
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -897,7 +897,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 								},
 							},
 						},
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -988,7 +988,6 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-
 		}
 
 		expected := controlplanev1.TalosControlPlane{
@@ -1013,7 +1012,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 								},
 							},
 						},
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -1124,7 +1123,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 						StrategicPatches: []string{
 							string(ntpPatch),
 						},
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -1252,7 +1251,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				Template: bootstrapv1.TalosConfigTemplateResource{
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 					},
 				},
 			},
@@ -1313,7 +1312,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				Template: bootstrapv1.TalosConfigTemplateResource{
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 						ConfigPatches: []bootstrapv1.ConfigPatches{
 							{
 								Op:   "replace",
@@ -1400,7 +1399,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				Template: bootstrapv1.TalosConfigTemplateResource{
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 						ConfigPatches: []bootstrapv1.ConfigPatches{
 							{
 								Op:   "replace",
@@ -1480,7 +1479,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				Template: bootstrapv1.TalosConfigTemplateResource{
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
-						TalosVersion: "v1.7",
+						TalosVersion: "v1.12",
 						StrategicPatches: []string{
 							string(ntpPatch),
 						},
