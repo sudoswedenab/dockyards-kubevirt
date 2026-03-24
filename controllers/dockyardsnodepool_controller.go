@@ -388,10 +388,19 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
 			v1alpha1Patch.Machine = &talosV1Alpha1MachinePatch{}
 		}
 
+		if v1alpha1Patch.Cluster == nil {
+			v1alpha1Patch.Cluster = &talosV1Alpha1ClusterPatch{}
+		}
+
 		v1alpha1Patch.Machine.Kubelet = &talosV1Alpha1KubeletPatch{
 			NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
 				ValidSubnets: r.ValidNodeIPSubnets,
 			},
+		}
+
+		v1alpha1Patch.Cluster.ETCD = &talosV1Alpha1ETCDPatch{
+			AdvertisedSubnets: r.ValidNodeIPSubnets,
+			ListenSubnets:     r.ValidNodeIPSubnets,
 		}
 	}
 

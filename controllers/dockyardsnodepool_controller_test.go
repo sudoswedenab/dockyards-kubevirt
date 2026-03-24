@@ -778,9 +778,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-						GenerateType: "controlplane",
+						GenerateType:     "controlplane",
 						StrategicPatches: []string{string(cpPatch)},
-						TalosVersion: "v1.12",
+						TalosVersion:     "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -895,9 +895,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-						GenerateType: "controlplane",
+						GenerateType:     "controlplane",
 						StrategicPatches: []string{string(cpPatch), string(subnetsPatch)},
-						TalosVersion: "v1.12",
+						TalosVersion:     "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -995,8 +995,14 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		nodeIPPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+		sharedPatch := talosV1Alpha1ConfigPatch{
 			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				ETCD: &talosV1Alpha1ETCDPatch{
+					AdvertisedSubnets: r.ValidNodeIPSubnets,
+					ListenSubnets:     r.ValidNodeIPSubnets,
+				},
+			},
 			Machine: &talosV1Alpha1MachinePatch{
 				Kubelet: &talosV1Alpha1KubeletPatch{
 					NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
@@ -1004,7 +1010,16 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 					},
 				},
 			},
-		})
+		}
+
+		if len(owner.Spec.PodSubnets) > 0 || len(owner.Spec.ServiceSubnets) > 0 {
+			sharedPatch.Cluster.Network = &talosV1Alpha1ClusterNetworkPatch{
+				PodSubnets:     owner.Spec.PodSubnets,
+				ServiceSubnets: owner.Spec.ServiceSubnets,
+			}
+		}
+
+		nodeIPPatch, err := yaml.Marshal(sharedPatch)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1014,9 +1029,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-						GenerateType: "controlplane",
+						GenerateType:     "controlplane",
 						StrategicPatches: []string{string(cpPatch), string(nodeIPPatch)},
-						TalosVersion: "v1.12",
+						TalosVersion:     "v1.12",
 					},
 				},
 				InfrastructureTemplate: corev1.ObjectReference{
@@ -1332,8 +1347,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			Spec: bootstrapv1.TalosConfigTemplateSpec{
 				Template: bootstrapv1.TalosConfigTemplateResource{
 					Spec: bootstrapv1.TalosConfigSpec{
-						GenerateType: "worker",
-						TalosVersion: "v1.12",
+						GenerateType:     "worker",
+						TalosVersion:     "v1.12",
 						StrategicPatches: []string{string(subnetsPatch)},
 					},
 				},
@@ -1409,8 +1424,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			Spec: bootstrapv1.TalosConfigTemplateSpec{
 				Template: bootstrapv1.TalosConfigTemplateResource{
 					Spec: bootstrapv1.TalosConfigSpec{
-						GenerateType: "worker",
-						TalosVersion: "v1.12",
+						GenerateType:     "worker",
+						TalosVersion:     "v1.12",
 						StrategicPatches: []string{string(envPatch)},
 					},
 				},

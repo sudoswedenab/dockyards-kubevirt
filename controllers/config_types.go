@@ -47,6 +47,7 @@ type talosV1Alpha1KubeletNodeIPPatch struct {
 type talosV1Alpha1ClusterPatch struct {
 	Network   *talosV1Alpha1ClusterNetworkPatch `yaml:"network,omitempty"`
 	APIServer *talosV1Alpha1APIServerPatch      `yaml:"apiServer,omitempty"`
+	ETCD      *talosV1Alpha1ETCDPatch           `yaml:"etcd,omitempty"`
 }
 
 type talosV1Alpha1APIServerPatch struct {
@@ -54,9 +55,14 @@ type talosV1Alpha1APIServerPatch struct {
 }
 
 type talosV1Alpha1ClusterNetworkPatch struct {
-	PodSubnets     []string                     `yaml:"podSubnets,omitempty"`
-	ServiceSubnets []string                     `yaml:"serviceSubnets,omitempty"`
+	PodSubnets     []string                      `yaml:"podSubnets,omitempty"`
+	ServiceSubnets []string                      `yaml:"serviceSubnets,omitempty"`
 	CNI            *talosV1Alpha1ClusterCNIPatch `yaml:"cni,omitempty"`
+}
+
+type talosV1Alpha1ETCDPatch struct {
+	AdvertisedSubnets []string `yaml:"advertisedSubnets,omitempty"`
+	ListenSubnets     []string `yaml:"listenSubnets,omitempty"`
 }
 
 type talosV1Alpha1ClusterCNIPatch struct {
