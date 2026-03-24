@@ -16,10 +16,8 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -32,7 +30,6 @@ import (
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -761,28 +758,28 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		cpPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				APIServer: &talosV1Alpha1APIServerPatch{
+					CertSANs: []string{owner.Status.APIEndpoint.Host},
+				},
+				Network: &talosV1Alpha1ClusterNetworkPatch{
+					CNI: &talosV1Alpha1ClusterCNIPatch{Name: "none"},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		expected := controlplanev1.TalosControlPlane{
 			ObjectMeta: actual.ObjectMeta,
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 						GenerateType: "controlplane",
-						ConfigPatches: []bootstrapv1.ConfigPatches{
-							{
-								Op:   "replace",
-								Path: "/cluster/apiServer/certSANs",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote(owner.Status.APIEndpoint.Host) + "]"),
-								},
-							},
-							{
-								Op:   "replace",
-								Path: "/cluster/network/cni",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("{\"name\":\"none\"}"),
-								},
-							},
-						},
+						StrategicPatches: []string{string(cpPatch)},
 						TalosVersion: "v1.12",
 					},
 				},
@@ -868,35 +865,38 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		cpPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				APIServer: &talosV1Alpha1APIServerPatch{
+					CertSANs: []string{owner.Status.APIEndpoint.Host},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		subnetsPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				Network: &talosV1Alpha1ClusterNetworkPatch{
+					PodSubnets:     owner.Spec.PodSubnets,
+					ServiceSubnets: owner.Spec.ServiceSubnets,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		expected := controlplanev1.TalosControlPlane{
 			ObjectMeta: actual.ObjectMeta,
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 						GenerateType: "controlplane",
-						ConfigPatches: []bootstrapv1.ConfigPatches{
-							{
-								Op:   "replace",
-								Path: "/cluster/apiServer/certSANs",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote(owner.Status.APIEndpoint.Host) + "]"),
-								},
-							},
-							{
-								Op:   "replace",
-								Path: "/cluster/network/podSubnets",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote("192.168.0.0/16") + "]"),
-								},
-							},
-							{
-								Op:   "replace",
-								Path: "/cluster/network/serviceSubnets",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote("172.16.0.0/12") + "]"),
-								},
-							},
-						},
+						StrategicPatches: []string{string(cpPatch), string(subnetsPatch)},
 						TalosVersion: "v1.12",
 					},
 				},
@@ -983,8 +983,27 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		raw, err := json.Marshal(map[string]any{
-			"validSubnets": r.ValidNodeIPSubnets,
+		cpPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				APIServer: &talosV1Alpha1APIServerPatch{
+					CertSANs: []string{owner.Status.APIEndpoint.Host},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodeIPPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Machine: &talosV1Alpha1MachinePatch{
+				Kubelet: &talosV1Alpha1KubeletPatch{
+					NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
+						ValidSubnets: r.ValidNodeIPSubnets,
+					},
+				},
+			},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -996,22 +1015,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 						GenerateType: "controlplane",
-						ConfigPatches: []bootstrapv1.ConfigPatches{
-							{
-								Op:   "replace",
-								Path: "/cluster/apiServer/certSANs",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote(owner.Status.APIEndpoint.Host) + "]"),
-								},
-							},
-							{
-								Op:   "replace",
-								Path: "/machine/kubelet/nodeIP",
-								Value: apiextensionsv1.JSON{
-									Raw: raw,
-								},
-							},
-						},
+						StrategicPatches: []string{string(cpPatch), string(nodeIPPatch)},
 						TalosVersion: "v1.12",
 					},
 				},
@@ -1094,6 +1098,18 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		cpPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				APIServer: &talosV1Alpha1APIServerPatch{
+					CertSANs: []string{owner.Status.APIEndpoint.Host},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		ntpPatch, err := yaml.Marshal(timeSyncConfigDoc{
 			APIVersion: "v1alpha1",
 			Kind:       "TimeSyncConfig",
@@ -1111,16 +1127,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 						GenerateType: "controlplane",
-						ConfigPatches: []bootstrapv1.ConfigPatches{
-							{
-								Op:   "replace",
-								Path: "/cluster/apiServer/certSANs",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote(owner.Status.APIEndpoint.Host) + "]"),
-								},
-							},
-						},
 						StrategicPatches: []string{
+							string(cpPatch),
 							string(ntpPatch),
 						},
 						TalosVersion: "v1.12",
@@ -1306,6 +1314,19 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
+		subnetsPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Cluster: &talosV1Alpha1ClusterPatch{
+				Network: &talosV1Alpha1ClusterNetworkPatch{
+					PodSubnets:     owner.Spec.PodSubnets,
+					ServiceSubnets: owner.Spec.ServiceSubnets,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		expected := bootstrapv1.TalosConfigTemplate{
 			ObjectMeta: actual.ObjectMeta,
 			Spec: bootstrapv1.TalosConfigTemplateSpec{
@@ -1313,22 +1334,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
 						TalosVersion: "v1.12",
-						ConfigPatches: []bootstrapv1.ConfigPatches{
-							{
-								Op:   "replace",
-								Path: "/cluster/network/podSubnets",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote("10.128.0.0/16") + "]"),
-								},
-							},
-							{
-								Op:   "replace",
-								Path: "/cluster/network/serviceSubnets",
-								Value: apiextensionsv1.JSON{
-									Raw: []byte("[" + strconv.Quote("10.112.0.0/12") + "]"),
-								},
-							},
-						},
+						StrategicPatches: []string{string(subnetsPatch)},
 					},
 				},
 			},
@@ -1364,15 +1370,6 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		rawEnv, err := json.Marshal(map[string]string{
-			"http_proxy":  "http://proxy.example.com:3128",
-			"https_proxy": "http://proxy.example.com:3128",
-			"no_proxy":    "localhost,127.0.0.1,.cluster.local",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
 			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
@@ -1393,6 +1390,20 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
+		envPatch, err := yaml.Marshal(talosV1Alpha1ConfigPatch{
+			Version: "v1alpha1",
+			Machine: &talosV1Alpha1MachinePatch{
+				Env: &talosV1Alpha1EnvPatch{
+					HTTPProxy:  ptr.To("http://proxy.example.com:3128"),
+					HTTPSProxy: ptr.To("http://proxy.example.com:3128"),
+					NoProxy:    ptr.To("localhost,127.0.0.1,.cluster.local"),
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		expected := bootstrapv1.TalosConfigTemplate{
 			ObjectMeta: actual.ObjectMeta,
 			Spec: bootstrapv1.TalosConfigTemplateSpec{
@@ -1400,15 +1411,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
 						TalosVersion: "v1.12",
-						ConfigPatches: []bootstrapv1.ConfigPatches{
-							{
-								Op:   "replace",
-								Path: "/machine/env",
-								Value: apiextensionsv1.JSON{
-									Raw: rawEnv,
-								},
-							},
-						},
+						StrategicPatches: []string{string(envPatch)},
 					},
 				},
 			},

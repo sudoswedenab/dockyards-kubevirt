@@ -14,6 +14,55 @@
 
 package controllers
 
+// talosV1Alpha1ConfigPatch is a minimal v1alpha1 Talos machine config document
+// used as a strategic merge patch.
+//
+// We keep this intentionally small (and use lots of `omitempty`) to avoid
+// accidentally zeroing fields we don't manage.
+type talosV1Alpha1ConfigPatch struct {
+	Version string                     `yaml:"version"`
+	Machine *talosV1Alpha1MachinePatch `yaml:"machine,omitempty"`
+	Cluster *talosV1Alpha1ClusterPatch `yaml:"cluster,omitempty"`
+}
+
+type talosV1Alpha1MachinePatch struct {
+	Kubelet *talosV1Alpha1KubeletPatch `yaml:"kubelet,omitempty"`
+	Env     *talosV1Alpha1EnvPatch     `yaml:"env,omitempty"`
+}
+
+type talosV1Alpha1EnvPatch struct {
+	HTTPProxy  *string `yaml:"http_proxy,omitempty"`
+	HTTPSProxy *string `yaml:"https_proxy,omitempty"`
+	NoProxy    *string `yaml:"no_proxy,omitempty"`
+}
+
+type talosV1Alpha1KubeletPatch struct {
+	NodeIP *talosV1Alpha1KubeletNodeIPPatch `yaml:"nodeIP,omitempty"`
+}
+
+type talosV1Alpha1KubeletNodeIPPatch struct {
+	ValidSubnets []string `yaml:"validSubnets,omitempty"`
+}
+
+type talosV1Alpha1ClusterPatch struct {
+	Network   *talosV1Alpha1ClusterNetworkPatch `yaml:"network,omitempty"`
+	APIServer *talosV1Alpha1APIServerPatch      `yaml:"apiServer,omitempty"`
+}
+
+type talosV1Alpha1APIServerPatch struct {
+	CertSANs []string `yaml:"certSANs,omitempty"`
+}
+
+type talosV1Alpha1ClusterNetworkPatch struct {
+	PodSubnets     []string                     `yaml:"podSubnets,omitempty"`
+	ServiceSubnets []string                     `yaml:"serviceSubnets,omitempty"`
+	CNI            *talosV1Alpha1ClusterCNIPatch `yaml:"cni,omitempty"`
+}
+
+type talosV1Alpha1ClusterCNIPatch struct {
+	Name string `yaml:"name,omitempty"`
+}
+
 type timeSyncConfigNTP struct {
 	Servers []string `yaml:"servers,omitempty"`
 }

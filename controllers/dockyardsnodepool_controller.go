@@ -16,8 +16,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
-	"strconv"
 	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -30,7 +28,6 @@ import (
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -372,94 +369,68 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 
 func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
 	dockyardsCluster *dockyardsv1.Cluster,
-	configPatches []bootstrapv1.ConfigPatches,
 	strategicPatches []string,
-) ([]bootstrapv1.ConfigPatches, []string, error) {
-	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
-		raw, err := json.Marshal(dockyardsCluster.Spec.PodSubnets)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/podSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
+) ([]string, error) {
+	v1alpha1Patch := talosV1Alpha1ConfigPatch{
+		Version: "v1alpha1",
 	}
 
-	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
-		raw, err := json.Marshal(dockyardsCluster.Spec.ServiceSubnets)
-		if err != nil {
-			return nil, nil, err
+	if len(dockyardsCluster.Spec.PodSubnets) > 0 || len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
+		v1alpha1Patch.Cluster = &talosV1Alpha1ClusterPatch{}
+		v1alpha1Patch.Cluster.Network = &talosV1Alpha1ClusterNetworkPatch{
+			PodSubnets:     dockyardsCluster.Spec.PodSubnets,
+			ServiceSubnets: dockyardsCluster.Spec.ServiceSubnets,
 		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/serviceSubnets",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
 	}
 
 	if len(r.ValidNodeIPSubnets) > 0 {
-		raw, err := json.Marshal(map[string]any{
-			"validSubnets": r.ValidNodeIPSubnets,
-		})
-		if err != nil {
-			return nil, nil, err
+		if v1alpha1Patch.Machine == nil {
+			v1alpha1Patch.Machine = &talosV1Alpha1MachinePatch{}
 		}
 
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/machine/kubelet/nodeIP",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
+		v1alpha1Patch.Machine.Kubelet = &talosV1Alpha1KubeletPatch{
+			NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
+				ValidSubnets: r.ValidNodeIPSubnets,
 			},
 		}
-
-		configPatches = append(configPatches, configPatch)
 	}
 
-	envVar := map[string]string{}
+	var envPatch talosV1Alpha1EnvPatch
+	hasEnvPatch := false
 
 	noProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarNoProxy)
 	if found {
-		envVar["no_proxy"] = noProxy
+		envPatch.NoProxy = ptr.To(noProxy)
+		hasEnvPatch = true
 	}
 
 	httpProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarHttpProxy)
 	if found {
-		envVar["http_proxy"] = httpProxy
+		envPatch.HTTPProxy = ptr.To(httpProxy)
+		hasEnvPatch = true
 	}
 
 	httpsProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarHttpsProxy)
 	if found {
-		envVar["https_proxy"] = httpsProxy
+		envPatch.HTTPSProxy = ptr.To(httpsProxy)
+		hasEnvPatch = true
 	}
 
-	if len(envVar) > 0 {
-		raw, err := json.Marshal(envVar)
+	if hasEnvPatch {
+		if v1alpha1Patch.Machine == nil {
+			v1alpha1Patch.Machine = &talosV1Alpha1MachinePatch{}
+		}
+
+		v1alpha1Patch.Machine.Env = &envPatch
+	}
+
+	if v1alpha1Patch.Machine != nil || v1alpha1Patch.Cluster != nil {
+		raw, err := yaml.Marshal(v1alpha1Patch)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/machine/env",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
+		strategicPatches = append(strategicPatches, string(raw))
 	}
 
 	// Configure NTP servers using the Talos TimeSyncConfig document (Talos v1.12+).
@@ -502,14 +473,14 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
 
 			raw, err := yaml.Marshal(doc)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 
 			strategicPatches = append(strategicPatches, string(raw))
 		}
 	}
 
-	return configPatches, strategicPatches, nil
+	return strategicPatches, nil
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
@@ -528,40 +499,33 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		},
 	}
 
-	configPatches := []bootstrapv1.ConfigPatches{
-		{
-			Op:   "replace",
-			Path: "/cluster/apiServer/certSANs",
-			Value: apiextensionsv1.JSON{
-				Raw: []byte("[" + strconv.Quote(dockyardsCluster.Status.APIEndpoint.Host) + "]"),
+	controlPlanePatch := talosV1Alpha1ConfigPatch{
+		Version: "v1alpha1",
+		Cluster: &talosV1Alpha1ClusterPatch{
+			APIServer: &talosV1Alpha1APIServerPatch{
+				CertSANs: []string{dockyardsCluster.Status.APIEndpoint.Host},
 			},
 		},
 	}
 
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
-		raw, err := json.Marshal(map[string]string{
-			"name": "none",
-		})
-		if err != nil {
-			conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
-
-			return ctrl.Result{}, nil
+		controlPlanePatch.Cluster.Network = &talosV1Alpha1ClusterNetworkPatch{
+			CNI: &talosV1Alpha1ClusterCNIPatch{Name: "none"},
 		}
-
-		configPatch := bootstrapv1.ConfigPatches{
-			Op:   "replace",
-			Path: "/cluster/network/cni",
-			Value: apiextensionsv1.JSON{
-				Raw: raw,
-			},
-		}
-
-		configPatches = append(configPatches, configPatch)
 	}
 
 	var strategicPatches []string
 
-	configPatches, strategicPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches, strategicPatches)
+	raw, err := yaml.Marshal(controlPlanePatch)
+	if err != nil {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, nil
+	}
+
+	strategicPatches = append(strategicPatches, string(raw))
+
+	strategicPatches, err = r.reconcileSharedConfigPatches(dockyardsCluster, strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
@@ -586,7 +550,6 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 			ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 				GenerateType:     "controlplane",
 				TalosVersion:     "v1.12",
-				ConfigPatches:    configPatches,
 				StrategicPatches: strategicPatches,
 			},
 		}
@@ -637,10 +600,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 		},
 	}
 
-	var configPatches []bootstrapv1.ConfigPatches
 	var strategicPatches []string
 
-	configPatches, strategicPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, configPatches, strategicPatches)
+	strategicPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -649,7 +611,6 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 		talosConfigTemplate.Spec.Template.Spec.GenerateType = "worker"
 		talosConfigTemplate.Spec.Template.Spec.TalosVersion = "v1.12"
 
-		talosConfigTemplate.Spec.Template.Spec.ConfigPatches = configPatches
 		talosConfigTemplate.Spec.Template.Spec.StrategicPatches = strategicPatches
 
 		return nil
