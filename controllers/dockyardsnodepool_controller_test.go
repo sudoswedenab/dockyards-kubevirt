@@ -989,6 +989,10 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				APIServer: &talosV1Alpha1APIServerPatch{
 					CertSANs: []string{owner.Status.APIEndpoint.Host},
 				},
+				ETCD: &talosV1Alpha1ETCDPatch{
+					AdvertisedSubnets: r.ValidNodeIPSubnets,
+					ListenSubnets:     r.ValidNodeIPSubnets,
+				},
 			},
 		})
 		if err != nil {
@@ -997,12 +1001,6 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		sharedPatch := talosV1Alpha1ConfigPatch{
 			Version: "v1alpha1",
-			Cluster: &talosV1Alpha1ClusterPatch{
-				ETCD: &talosV1Alpha1ETCDPatch{
-					AdvertisedSubnets: r.ValidNodeIPSubnets,
-					ListenSubnets:     r.ValidNodeIPSubnets,
-				},
-			},
 			Machine: &talosV1Alpha1MachinePatch{
 				Kubelet: &talosV1Alpha1KubeletPatch{
 					NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
@@ -1013,9 +1011,11 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 
 		if len(owner.Spec.PodSubnets) > 0 || len(owner.Spec.ServiceSubnets) > 0 {
-			sharedPatch.Cluster.Network = &talosV1Alpha1ClusterNetworkPatch{
-				PodSubnets:     owner.Spec.PodSubnets,
-				ServiceSubnets: owner.Spec.ServiceSubnets,
+			sharedPatch.Cluster = &talosV1Alpha1ClusterPatch{
+				Network: &talosV1Alpha1ClusterNetworkPatch{
+					PodSubnets:     owner.Spec.PodSubnets,
+					ServiceSubnets: owner.Spec.ServiceSubnets,
+				},
 			}
 		}
 

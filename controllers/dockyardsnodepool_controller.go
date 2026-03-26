@@ -388,19 +388,10 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
 			v1alpha1Patch.Machine = &talosV1Alpha1MachinePatch{}
 		}
 
-		if v1alpha1Patch.Cluster == nil {
-			v1alpha1Patch.Cluster = &talosV1Alpha1ClusterPatch{}
-		}
-
 		v1alpha1Patch.Machine.Kubelet = &talosV1Alpha1KubeletPatch{
 			NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
 				ValidSubnets: r.ValidNodeIPSubnets,
 			},
-		}
-
-		v1alpha1Patch.Cluster.ETCD = &talosV1Alpha1ETCDPatch{
-			AdvertisedSubnets: r.ValidNodeIPSubnets,
-			ListenSubnets:     r.ValidNodeIPSubnets,
 		}
 	}
 
@@ -515,6 +506,13 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 				CertSANs: []string{dockyardsCluster.Status.APIEndpoint.Host},
 			},
 		},
+	}
+
+	if len(r.ValidNodeIPSubnets) > 0 {
+		controlPlanePatch.Cluster.ETCD = &talosV1Alpha1ETCDPatch{
+			AdvertisedSubnets: r.ValidNodeIPSubnets,
+			ListenSubnets:     r.ValidNodeIPSubnets,
+		}
 	}
 
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
