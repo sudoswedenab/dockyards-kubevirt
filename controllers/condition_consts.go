@@ -50,5 +50,6 @@ const (
 	IngressWorkloadReconciledCondition = "IngressWorkloadReconciled"
 
 	WaitingForGatewayAddressReason = "WaitingForGatewayAddress"
+	NoDefaultIngressProviderReason = "NoDefaultIngressProvider"
 	ErrorReconcilingReason         = "ErrorReconciling"
 )

@@ -28,6 +28,7 @@ import (
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -329,6 +330,70 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 
 		if !cmp.Equal(actual, expected, ignoreFields) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual, ignoreFields))
+		}
+	})
+
+	t.Run("test no default ingress provider skips workload", func(t *testing.T) {
+		r := DockyardsClusterReconciler{
+			Client:                mgr.GetClient(),
+			EnableWorkloadIngress: true,
+			DockyardsConfig:       dockyardsConfig,
+		}
+
+		cluster := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.ClusterSpec{
+				NoDefaultIngressProvider: true,
+			},
+		}
+
+		err := c.Create(ctx, &cluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gateway := gatewayapiv1.Gateway{
+			Status: gatewayapiv1.GatewayStatus{
+				Addresses: []gatewayapiv1.GatewayStatusAddress{},
+			},
+		}
+
+		_, err = r.reconcileIngressNginx(ctx, &cluster, &gateway)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := dockyardsv1.Cluster{
+			ObjectMeta: cluster.ObjectMeta,
+			Spec:       cluster.Spec,
+			Status: dockyardsv1.ClusterStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:   IngressWorkloadReconciledCondition,
+						Reason: NoDefaultIngressProviderReason,
+						Status: metav1.ConditionTrue,
+					},
+				},
+			},
+		}
+
+		ignoreConditionFields := cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration", "LastTransitionTime")
+		if !cmp.Equal(cluster, expected, ignoreConditionFields) {
+			t.Errorf("diff: %s", cmp.Diff(expected, cluster, ignoreConditionFields))
+		}
+
+		workloadKey := client.ObjectKey{
+			Name:      cluster.Name + "-ingress-nginx",
+			Namespace: namespace.Name,
+		}
+
+		var actual dockyardsv1.Workload
+		err = c.Get(ctx, workloadKey, &actual)
+		if !apierrors.IsNotFound(err) {
+			t.Fatalf("expected workload to not exist, got error: %v", err)
 		}
 	})
 
