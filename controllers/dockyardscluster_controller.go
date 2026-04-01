@@ -137,6 +137,13 @@ func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, doc
 }
 
 func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster, gateway *gatewayapiv1.Gateway) (ctrl.Result, error) {
+	if dockyardsCluster.Spec.NoDefaultIngressProvider {
+		conditions.MarkTrue(dockyardsCluster, IngressWorkloadReconciledCondition, NoDefaultIngressProviderReason, "")
+
+		return ctrl.Result{}, nil
+	}
+
+	name := dockyardsCluster.Name + "-ingress-nginx"
 	input := map[string]any{}
 
 	if r.EnableWorkloadIngress {
@@ -167,8 +174,6 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 			"loadBalancerIP": gatewayIP,
 		}
 	}
-
-	name := dockyardsCluster.Name + "-ingress-nginx"
 
 	raw, err := json.Marshal(input)
 	if err != nil {

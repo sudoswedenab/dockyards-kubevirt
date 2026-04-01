@@ -82,7 +82,7 @@ To keep the diagram compact, flow nodes aggregate the work that would otherwise 
 
 ### Management cluster orchestration
 `dockyards-kubevirt` runs inside `dockyards-system` alongside `dockyards-backend` and watches every Dockyards resource that defines a customer environment. The reconcilers perform distinct roles:
-- **`DockyardsClusterReconciler`** adds the shared gateway as the API and ingress anchor so the Dockyards cluster status always reports a reachable endpoint.
+- **`DockyardsClusterReconciler`** publishes the shared gateway as the API endpoint anchor and installs the default ingress controller (`ingress-nginx`) unless `Cluster.spec.noDefaultIngressProvider` is set.
 - **`DockyardsNodePoolReconciler`** bootstraps the KubeVirt/Talos templates for each node pool, wiring the appropriate machine templates, Talos configurations, and machine deployments.
 - **`DockyardsReleaseReconciler`** downloads Talos installers, stores them in CDI `DataVolume`s, and publishes the downstream `DataSource` artifacts.
 - **`DockyardsWorkloadReconciler`** owns the management-cluster `Service`, `HTTPRoute`, and `TLSRoute` objects, keeping gateway hostnames aligned with the Dockyards cluster DNS zones.
@@ -98,6 +98,12 @@ The controller stack keeps the KubeVirt and Talos artifacts aligned with the Doc
 
 ### Workload ingress and Gateway API integration
 `DockyardsWorkloadReconciler` grants the shared gateway the HTTP/TLS routes and core/v1 services that front a workload cluster service. It uses `clustercache.ClusterCache` to watch the remote services that the workload cluster creates and patches their LoadBalancer IPs so that the management cluster service status always advertises the gateway address. Once the gateway has an address the reconciler builds HTTPRoute/TLSRoute objects that advertise every customer DNS zone recorded on the owning Dockyards cluster, keeping the gateway in sync with the workload for both HTTP and TLS traffic.
+
+`DockyardsClusterReconciler` also ensures the workload cluster has a default ingress controller by creating a per-cluster Dockyards `Workload` named `<cluster>-ingress-nginx` using the `ingress-nginx` `WorkloadTemplate` in the configured public namespace.
+
+- Set `Cluster.spec.noDefaultIngressProvider: true` to skip creating/patching that default `ingress-nginx` workload.
+- This flag does not delete an existing `<cluster>-ingress-nginx` workload; remove it manually if you previously installed the default ingress controller.
+- The `--workload-ingress` flag controls whether the operator waits for a shared Gateway IPv4 address and pins the `ingress-nginx` service `loadBalancerIP` to that address; disabling it still installs `ingress-nginx` but leaves its values unmodified.
 
 ## Key components
 - **`ClusterAPIClusterReconciler`** (`controllers/clusterapicluster_controller.go`) keeps a `KubevirtCluster` in sync with every CAPI `Cluster` and populates `Cluster.Spec.InfrastructureRef` so that the provider stack owns the cluster.
