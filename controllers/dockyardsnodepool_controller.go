@@ -441,43 +441,70 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
 	// ntp:
 	//   servers:
 	//     - time.cloudflare.com
+	//
+	// PTP can be configured as well:
+	// apiVersion: v1alpha1
+	// kind: TimeSyncConfig
+	// ptp:
+	//   devices:
+	//     - eth0
 
-	nServers, found := r.DockyardsConfig.GetValueForKey(EnvVarNtpServers)
-	if found {
-		fields := strings.Split(nServers, ",")
-		ntpServers := make([]string, 0, len(fields))
+	parseCommaSeparatedUnique := func(value string) []string {
+		fields := strings.Split(value, ",")
+		result := make([]string, 0, len(fields))
 		seen := map[string]struct{}{}
 
-		for _, server := range fields {
-			server = strings.TrimSpace(server)
-			if server == "" {
+		for _, field := range fields {
+			field = strings.TrimSpace(field)
+			if field == "" {
 				continue
 			}
 
-			if _, ok := seen[server]; ok {
+			if _, ok := seen[field]; ok {
 				continue
 			}
 
-			seen[server] = struct{}{}
-			ntpServers = append(ntpServers, server)
+			seen[field] = struct{}{}
+			result = append(result, field)
+		}
+
+		return result
+	}
+
+	var ntpServers []string
+	if nServers, found := r.DockyardsConfig.GetValueForKey(EnvVarNtpServers); found {
+		ntpServers = parseCommaSeparatedUnique(nServers)
+	}
+
+	var ptpDevices []string
+	if pDevices, found := r.DockyardsConfig.GetValueForKey(EnvVarPtpDevices); found {
+		ptpDevices = parseCommaSeparatedUnique(pDevices)
+	}
+
+	if len(ntpServers) > 0 || len(ptpDevices) > 0 {
+		doc := timeSyncConfigDoc{
+			APIVersion: "v1alpha1",
+			Kind:       "TimeSyncConfig",
 		}
 
 		if len(ntpServers) > 0 {
-			doc := timeSyncConfigDoc{
-				APIVersion: "v1alpha1",
-				Kind:       "TimeSyncConfig",
-				NTP: &timeSyncConfigNTP{
-					Servers: ntpServers,
-				},
+			doc.NTP = &timeSyncConfigNTP{
+				Servers: ntpServers,
 			}
-
-			raw, err := yaml.Marshal(doc)
-			if err != nil {
-				return nil, err
-			}
-
-			strategicPatches = append(strategicPatches, string(raw))
 		}
+
+		if len(ptpDevices) > 0 {
+			doc.PTP = &timeSyncConfigPTP{
+				Devices: ptpDevices,
+			}
+		}
+
+		raw, err := yaml.Marshal(doc)
+		if err != nil {
+			return nil, err
+		}
+
+		strategicPatches = append(strategicPatches, string(raw))
 	}
 
 	return strategicPatches, nil

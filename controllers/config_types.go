@@ -73,8 +73,13 @@ type timeSyncConfigNTP struct {
 	Servers []string `yaml:"servers,omitempty"`
 }
 
+type timeSyncConfigPTP struct {
+	Devices []string `yaml:"devices,omitempty"`
+}
+
 type timeSyncConfigDoc struct {
 	APIVersion string             `yaml:"apiVersion"`
 	Kind       string             `yaml:"kind"`
 	NTP        *timeSyncConfigNTP `yaml:"ntp,omitempty"`
+	PTP        *timeSyncConfigPTP `yaml:"ptp,omitempty"`
 }

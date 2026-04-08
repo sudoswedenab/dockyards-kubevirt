@@ -128,6 +128,14 @@ go build ./...
 
 `main.go` wires all reconcilers together, loads the Dockyards config map (`dockyards-system` by default), and starts the `clustercache.ClusterCache` that lets the workload reconcilier observe remote services.
 
+### Dockyards config map keys
+
+The controller reads selected keys from the Dockyards ConfigMap (configured via `--config-map` / `--dockyards-namespace`):
+
+- `dockyards-kubevirt.env.HTTP_PROXY`, `dockyards-kubevirt.env.HTTPS_PROXY`, `dockyards-kubevirt.env.NO_PROXY`
+- `dockyards-kubevirt.ntp.servers` (comma-separated NTP servers for Talos `TimeSyncConfig`)
+- `dockyards-kubevirt.ptp.devices` (comma-separated PTP device names for Talos `TimeSyncConfig`)
+
 ## Deployment
 
 1. Build/push `dockyards-kubevirt` and update the OCI repository referenced by the Dockyards installer (`dockyardsctl` already points to `public.ecr.aws/sudosweden/dockyards-kubevirt`).

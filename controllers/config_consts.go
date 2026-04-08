@@ -20,4 +20,5 @@ const (
 	EnvVarHttpProxy  = "dockyards-kubevirt.env.HTTP_PROXY"
 	EnvVarHttpsProxy = "dockyards-kubevirt.env.HTTPS_PROXY"
 	EnvVarNtpServers = "dockyards-kubevirt.ntp.servers"
+	EnvVarPtpDevices = "dockyards-kubevirt.ptp.devices"
 )
