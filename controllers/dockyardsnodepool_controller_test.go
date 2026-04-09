@@ -183,7 +183,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	}
 
-	t.Run("test resources", func(t *testing.T) {
+	t.Run("test machine template resources", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
@@ -328,10 +328,11 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
-	t.Run("test resources without block storage", func(t *testing.T) {
+	t.Run("test machine template resources without block storage", func(t *testing.T) {
 		nonBlockReconciler := DockyardsNodePoolReconciler{
 			Client:                     mgr.GetClient(),
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
@@ -377,7 +378,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("test storage resources", func(t *testing.T) {
+	t.Run("test machine template storage resources", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
@@ -572,10 +573,11 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
-	t.Run("test storage resources without block storage", func(t *testing.T) {
+	t.Run("test machine template storage resources without block storage", func(t *testing.T) {
 		nonBlockReconciler := DockyardsNodePoolReconciler{
 			Client:                     mgr.GetClient(),
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
@@ -696,7 +698,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
 	}
 
-	t.Run("test network plugin", func(t *testing.T) {
+	t.Run("test controlplane network plugin", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
@@ -798,7 +800,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test custom subnets", func(t *testing.T) {
+	t.Run("test controlplane custom subnets", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
@@ -918,7 +920,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test valid node ip subnets", func(t *testing.T) {
+	t.Run("test controlplane valid node ip subnets", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
@@ -1054,7 +1056,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test ntp servers", func(t *testing.T) {
+	t.Run("test controlplane ntp servers", func(t *testing.T) {
 		reconcilerWithNTP := reconciler
 		reconcilerWithNTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
 			string(KeyNtpServers): " 193.41.26.2, time.cloudflare.com,193.41.26.2, ",
@@ -1171,7 +1173,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test ptp devices", func(t *testing.T) {
+	t.Run("test controlplane ptp devices", func(t *testing.T) {
 		reconcilerWithPTP := reconciler
 		reconcilerWithPTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
 			string(KeyPtpDevices): " eth0, ens1f0, eth0, ",
@@ -1288,7 +1290,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test ntp servers and ptp devices", func(t *testing.T) {
+	t.Run("test controlplane ntp servers and ptp devices", func(t *testing.T) {
 		reconcilerWithTimeSync := reconciler
 		reconcilerWithTimeSync.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
 			string(KeyNtpServers): "193.41.26.2,time.cloudflare.com",
@@ -1478,7 +1480,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
 	}
 
-	t.Run("test empty owner", func(t *testing.T) {
+	t.Run("test config template empty owner", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test",
@@ -1531,7 +1533,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 	})
 
-	t.Run("test custom subnets", func(t *testing.T) {
+	t.Run("test config template custom subnets", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test",
@@ -1606,7 +1608,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 	})
 
-	t.Run("test proxy env vars", func(t *testing.T) {
+	t.Run("test config template proxy env vars", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test",
@@ -1683,7 +1685,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 	})
 
-	t.Run("test ntp servers", func(t *testing.T) {
+	t.Run("test config template ntp servers", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test",
@@ -1759,7 +1761,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 	})
 
-	t.Run("test ptp devices", func(t *testing.T) {
+	t.Run("test config template ptp devices", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test",
@@ -2088,7 +2090,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 		EnableMultus: true,
 	}
 
-	t.Run("test namespace without network attachment definitions", func(t *testing.T) {
+	t.Run("test machine template namespace without network attachment definitions", func(t *testing.T) {
 		namespace := corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "multus-",
@@ -2173,7 +2175,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 		}
 	})
 
-	t.Run("test namespace with network attachment definition", func(t *testing.T) {
+	t.Run("test machine template namespace with network attachment definition", func(t *testing.T) {
 		namespace := corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "multus-",
@@ -2286,7 +2288,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 		}
 	})
 
-	t.Run("test network attachment definition with default label", func(t *testing.T) {
+	t.Run("test machine template network attachment definition with default label", func(t *testing.T) {
 		namespace := corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "multus-",
