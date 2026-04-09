@@ -797,6 +797,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -917,6 +918,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1053,6 +1055,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1170,6 +1173,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1287,6 +1291,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1408,6 +1413,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 }
@@ -1530,6 +1536,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1605,6 +1612,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1682,6 +1690,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1758,6 +1767,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1834,6 +1844,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1912,6 +1923,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -1990,6 +2002,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 }
@@ -2172,6 +2185,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -2285,6 +2299,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
 
@@ -2392,6 +2407,21 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
+}
+
+func showYamlExpectedAndActual(t *testing.T, expected any, actual any) {
+	expectedBytes, err := yaml.Marshal(expected)
+	if err != nil {
+		return
+	}
+	actualBytes, err := yaml.Marshal(actual)
+	if err != nil {
+		return
+	}
+
+	t.Errorf("Expected:\n%s\n", string(expectedBytes))
+	t.Errorf("Actual:\n%s\n", string(actualBytes))
 }
