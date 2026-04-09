@@ -172,7 +172,7 @@ func main() {
 	err = (&controllers.DockyardsClusterReconciler{
 		Client:                 mgr.GetClient(),
 		GatewayParentReference: gatewayParentReference,
-		DockyardsNamespace:     dockyardsSystemNamespace,
+		DockyardsSystemNamespace: dockyardsSystemNamespace,
 		DockyardsConfig:        dockyardsConfig,
 		EnableWorkloadIngress:  enableWorkloadIngress,
 	}).SetupWithManager(mgr)

@@ -400,7 +400,7 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 	t.Run("test workload gateway missing address", func(t *testing.T) {
 		r := DockyardsClusterReconciler{
 			Client:                mgr.GetClient(),
-			DockyardsNamespace:    "dockyards-testing",
+			DockyardsSystemNamespace:    "dockyards-testing",
 			EnableWorkloadIngress: true,
 		}
 
