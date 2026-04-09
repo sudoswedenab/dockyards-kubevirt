@@ -16,6 +16,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -26,6 +27,7 @@ import (
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	talospatchv1 "github.com/sudoswedenab/dockyards-kubevirt/internal/talospatch/v1alpha1"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -56,14 +58,17 @@ import (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachinetemplates,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=network-attachment-definitions,verbs=get;list;watch
 
+type StrategicPatches []string
+
 type DockyardsNodePoolReconciler struct {
 	client.Client
 
-	DataVolumeStorageClassName *string
-	EnableMultus               bool
-	ValidNodeIPSubnets         []string
-	UseBlockStorage            bool
-	DockyardsConfig            *dyconfig.ConfigManager
+	TalosClusterDiscoveryServiceEndpoint   string
+	DataVolumeStorageClassName      *string
+	EnableMultus                    bool
+	ValidNodeIPSubnets              []string
+	UseBlockStorage                 bool
+	DockyardsConfig                 *dyconfig.ConfigManager
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -367,72 +372,80 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
-	dockyardsCluster *dockyardsv1.Cluster,
-	strategicPatches []string,
-) ([]string, error) {
-	v1alpha1Patch := talosV1Alpha1ConfigPatch{
-		Version: "v1alpha1",
+func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.Config {
+	// This is the patches we apply to the main talos config
+	// The file look something like this:
+	//
+	// version: v1alpha1
+	// cluster:
+	//   network:
+	//     podSubnets:
+	//       - 1.2.3.4
+	//     serviceSubnets:
+	//       - 1.2.3.4
+	//     cni:
+	//       name: foobar
+	//   apiServer:
+	//     certSANs:
+	//       - talos-api.example.com
+	//   etcd:
+	//     advertisedSubnets:
+	//       - 1.2.3.4
+	//     listenSubnets:
+	//       - 1.2.3.4
+	//   discovery:
+	//     registries:
+	//       service:
+	//         endpoint: "discovery-service.example.com"
+	// machine:
+	//   env:
+	//     some_key: some_value
+	//   kubelet:
+	//     nodeIP:
+	//       validSubnets:
+	//         - 1.2.3.4
+
+	patch := talospatchv1.Config{
+		Version: talospatchv1.ConfigVersion,
 	}
 
-	if len(dockyardsCluster.Spec.PodSubnets) > 0 || len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
-		v1alpha1Patch.Cluster = &talosV1Alpha1ClusterPatch{}
-		v1alpha1Patch.Cluster.Network = &talosV1Alpha1ClusterNetworkPatch{
-			PodSubnets:     dockyardsCluster.Spec.PodSubnets,
-			ServiceSubnets: dockyardsCluster.Spec.ServiceSubnets,
-		}
+	if len(dockyardsCluster.Spec.PodSubnets) > 0 {
+		patch.Cluster.Network.PodSubnets = dockyardsCluster.Spec.PodSubnets
+	}
+
+	if len(dockyardsCluster.Spec.ServiceSubnets) > 0 {
+		patch.Cluster.Network.ServiceSubnets = dockyardsCluster.Spec.ServiceSubnets
 	}
 
 	if len(r.ValidNodeIPSubnets) > 0 {
-		if v1alpha1Patch.Machine == nil {
-			v1alpha1Patch.Machine = &talosV1Alpha1MachinePatch{}
-		}
-
-		v1alpha1Patch.Machine.Kubelet = &talosV1Alpha1KubeletPatch{
-			NodeIP: &talosV1Alpha1KubeletNodeIPPatch{
-				ValidSubnets: r.ValidNodeIPSubnets,
-			},
-		}
+		patch.Machine.Kubelet.NodeIP.ValidSubnets = r.ValidNodeIPSubnets
 	}
 
-	var envPatch talosV1Alpha1EnvPatch
-	hasEnvPatch := false
-
-	noProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarNoProxy)
+	value, found := r.DockyardsConfig.GetValueForKey(EnvVarNoProxy)
 	if found {
-		envPatch.NoProxy = ptr.To(noProxy)
-		hasEnvPatch = true
+		patch.Machine.Env.Set("no_proxy", value)
 	}
 
-	httpProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarHttpProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(EnvVarHttpProxy)
 	if found {
-		envPatch.HTTPProxy = ptr.To(httpProxy)
-		hasEnvPatch = true
+		patch.Machine.Env.Set("http_proxy", value)
 	}
 
-	httpsProxy, found := r.DockyardsConfig.GetValueForKey(EnvVarHttpsProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(EnvVarHttpsProxy)
 	if found {
-		envPatch.HTTPSProxy = ptr.To(httpsProxy)
-		hasEnvPatch = true
+		patch.Machine.Env.Set("https_proxy", value)
 	}
 
-	if hasEnvPatch {
-		if v1alpha1Patch.Machine == nil {
-			v1alpha1Patch.Machine = &talosV1Alpha1MachinePatch{}
-		}
-
-		v1alpha1Patch.Machine.Env = &envPatch
+	if r.TalosClusterDiscoveryServiceEndpoint == "0" {
+		patch.Cluster.Discovery.Registries.Service.Disabled = ptr.To(true)
+	} else {
+		patch.Cluster.Discovery.Registries.Service.Endpoint = r.TalosClusterDiscoveryServiceEndpoint
 	}
 
-	if v1alpha1Patch.Machine != nil || v1alpha1Patch.Cluster != nil {
-		raw, err := yaml.Marshal(v1alpha1Patch)
-		if err != nil {
-			return nil, err
-		}
+	return patch
+}
 
-		strategicPatches = append(strategicPatches, string(raw))
-	}
-
+func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.TimeSyncConfig {
 	// Configure NTP servers using the Talos TimeSyncConfig document (Talos v1.12+).
 	//
 	// Example:
@@ -449,65 +462,39 @@ func (r *DockyardsNodePoolReconciler) reconcileSharedConfigPatches(
 	//   devices:
 	//     - eth0
 
-	parseCommaSeparatedUnique := func(value string) []string {
-		fields := strings.Split(value, ",")
-		result := make([]string, 0, len(fields))
-		seen := map[string]struct{}{}
-
-		for _, field := range fields {
-			field = strings.TrimSpace(field)
-			if field == "" {
-				continue
-			}
-
-			if _, ok := seen[field]; ok {
-				continue
-			}
-
-			seen[field] = struct{}{}
-			result = append(result, field)
-		}
-
-		return result
+	patch := talospatchv1.TimeSyncConfig{
+		Meta: talospatchv1.Meta{
+			APIVersion: talospatchv1.TimeSyncConfigAPIVersion,
+			Kind: talospatchv1.TimeSyncConfigKind,
+		},
 	}
 
-	var ntpServers []string
-	if nServers, found := r.DockyardsConfig.GetValueForKey(EnvVarNtpServers); found {
-		ntpServers = parseCommaSeparatedUnique(nServers)
+	if value, found := r.DockyardsConfig.GetValueForKey(EnvVarNtpServers); found {
+		patch.NTP.Servers = parseCommaSeparatedUnique(value)
 	}
 
-	var ptpDevices []string
-	if pDevices, found := r.DockyardsConfig.GetValueForKey(EnvVarPtpDevices); found {
-		ptpDevices = parseCommaSeparatedUnique(pDevices)
+	if value, found := r.DockyardsConfig.GetValueForKey(EnvVarPtpDevices); found {
+		patch.PTP.Devices = parseCommaSeparatedUnique(value)
 	}
 
-	if len(ntpServers) > 0 || len(ptpDevices) > 0 {
-		doc := timeSyncConfigDoc{
-			APIVersion: "v1alpha1",
-			Kind:       "TimeSyncConfig",
-		}
+	return patch
+}
 
-		if len(ntpServers) > 0 {
-			doc.NTP = &timeSyncConfigNTP{
-				Servers: ntpServers,
-			}
-		}
-
-		if len(ptpDevices) > 0 {
-			doc.PTP = &timeSyncConfigPTP{
-				Devices: ptpDevices,
-			}
-		}
-
-		raw, err := yaml.Marshal(doc)
-		if err != nil {
-			return nil, err
-		}
-
-		strategicPatches = append(strategicPatches, string(raw))
+func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
+	dockyardsCluster *dockyardsv1.Cluster,
+	strategicPatches *StrategicPatches,
+) error {
+	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
+	if err != nil {
+		return fmt.Errorf("could not add talos config patches: %w", err)
 	}
 
-	return strategicPatches, nil
+	err = strategicPatches.Add(ptr.To(r.timeSyncConfigPatch(dockyardsCluster)))
+	if err != nil {
+		return fmt.Errorf("could not add time sync config patches: %w", err)
+	}
+
+	return nil
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
@@ -519,51 +506,43 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		return ctrl.Result{}, nil
 	}
 
+	var strategicPatches StrategicPatches
+
+	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
+	if err != nil {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, nil
+	}
+
+	controlPlanePatch := talospatchv1.Config{
+		Version: talospatchv1.ConfigVersion,
+	}
+	if dockyardsCluster.Status.APIEndpoint.Host != "" {
+		controlPlanePatch.Cluster.APIServer.CertSANs = []string{dockyardsCluster.Status.APIEndpoint.Host}
+	}
+
+	if len(r.ValidNodeIPSubnets) > 0 {
+		controlPlanePatch.Cluster.ETCD.AdvertisedSubnets = r.ValidNodeIPSubnets
+		controlPlanePatch.Cluster.ETCD.ListenSubnets = r.ValidNodeIPSubnets
+	}
+
+	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
+		controlPlanePatch.Cluster.Network.CNI.Name = ptr.To("none")
+	}
+
+	err = strategicPatches.Add(&controlPlanePatch)
+	if err != nil {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, nil
+	}
+
 	talosControlPlane := controlplanev1.TalosControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dockyardsNodePool.Name,
 			Namespace: dockyardsNodePool.Namespace,
 		},
-	}
-
-	controlPlanePatch := talosV1Alpha1ConfigPatch{
-		Version: "v1alpha1",
-		Cluster: &talosV1Alpha1ClusterPatch{
-			APIServer: &talosV1Alpha1APIServerPatch{
-				CertSANs: []string{dockyardsCluster.Status.APIEndpoint.Host},
-			},
-		},
-	}
-
-	if len(r.ValidNodeIPSubnets) > 0 {
-		controlPlanePatch.Cluster.ETCD = &talosV1Alpha1ETCDPatch{
-			AdvertisedSubnets: r.ValidNodeIPSubnets,
-			ListenSubnets:     r.ValidNodeIPSubnets,
-		}
-	}
-
-	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
-		controlPlanePatch.Cluster.Network = &talosV1Alpha1ClusterNetworkPatch{
-			CNI: &talosV1Alpha1ClusterCNIPatch{Name: "none"},
-		}
-	}
-
-	var strategicPatches []string
-
-	raw, err := yaml.Marshal(controlPlanePatch)
-	if err != nil {
-		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
-
-		return ctrl.Result{}, nil
-	}
-
-	strategicPatches = append(strategicPatches, string(raw))
-
-	strategicPatches, err = r.reconcileSharedConfigPatches(dockyardsCluster, strategicPatches)
-	if err != nil {
-		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
-
-		return ctrl.Result{}, nil
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlane, func() error {
@@ -627,18 +606,18 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	var strategicPatches StrategicPatches
+
+	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	talosConfigTemplate := bootstrapv1.TalosConfigTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dockyardsNodePool.Name,
 			Namespace: dockyardsNodePool.Namespace,
 		},
-	}
-
-	var strategicPatches []string
-
-	strategicPatches, err := r.reconcileSharedConfigPatches(dockyardsCluster, strategicPatches)
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosConfigTemplate, func() error {
@@ -797,4 +776,40 @@ func patchDockyardsNodePool(ctx context.Context, patchHelper *patch.Helper, dock
 	)
 
 	return patchHelper.Patch(ctx, dockyardsNodePool, opts...)
+}
+
+func (patches *StrategicPatches) Add(value yaml.IsZeroer) error {
+	if value.IsZero() {
+		// Nothing to add :)
+		return nil
+	}
+
+	raw, err := yaml.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("could not marshal strategic patch: %w", err)
+	}
+	*patches = append(*patches, string(raw))
+	return nil
+}
+
+func parseCommaSeparatedUnique(value string) []string {
+	fields := strings.Split(value, ",")
+	result := make([]string, 0, len(fields))
+	seen := map[string]struct{}{}
+
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+
+		if _, ok := seen[field]; ok {
+			continue
+		}
+
+		seen[field] = struct{}{}
+		result = append(result, field)
+	}
+
+	return result
 }

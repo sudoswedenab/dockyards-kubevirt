@@ -51,6 +51,7 @@ func main() {
 	var validNodeIPSubnets []string
 	var enableWorkloadIngress bool
 	var useBlockStorage bool
+	var talosClusterDiscoveryServiceEndpoint string
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
@@ -61,6 +62,7 @@ func main() {
 	pflag.BoolVar(&useBlockStorage, "use-block-storage", true, "use block storage")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
+	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -147,12 +149,13 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsNodePoolReconciler{
-		Client:                     mgr.GetClient(),
-		DataVolumeStorageClassName: &dataVolumeStorageClassName,
-		EnableMultus:               enableMultus,
-		UseBlockStorage:            useBlockStorage,
-		ValidNodeIPSubnets:         validNodeIPSubnets,
-		DockyardsConfig:            dockyardsConfig,
+		Client:                                 mgr.GetClient(),
+		TalosClusterDiscoveryServiceEndpoint:   talosClusterDiscoveryServiceEndpoint,
+		DataVolumeStorageClassName:             &dataVolumeStorageClassName,
+		EnableMultus:                           enableMultus,
+		UseBlockStorage:                        useBlockStorage,
+		ValidNodeIPSubnets:                     validNodeIPSubnets,
+		DockyardsConfig:                        dockyardsConfig,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")
