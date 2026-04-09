@@ -421,17 +421,17 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 		patch.Machine.Kubelet.NodeIP.ValidSubnets = r.ValidNodeIPSubnets
 	}
 
-	value, found := r.DockyardsConfig.GetValueForKey(EnvVarNoProxy)
+	value, found := r.DockyardsConfig.GetValueForKey(KeyNoProxy)
 	if found {
 		patch.Machine.Env.Set("no_proxy", value)
 	}
 
-	value, found = r.DockyardsConfig.GetValueForKey(EnvVarHttpProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(KeyHttpProxy)
 	if found {
 		patch.Machine.Env.Set("http_proxy", value)
 	}
 
-	value, found = r.DockyardsConfig.GetValueForKey(EnvVarHttpsProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(KeyHttpsProxy)
 	if found {
 		patch.Machine.Env.Set("https_proxy", value)
 	}
@@ -469,11 +469,11 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 		},
 	}
 
-	if value, found := r.DockyardsConfig.GetValueForKey(EnvVarNtpServers); found {
+	if value, found := r.DockyardsConfig.GetValueForKey(KeyNtpServers); found {
 		patch.NTP.Servers = parseCommaSeparatedUnique(value)
 	}
 
-	if value, found := r.DockyardsConfig.GetValueForKey(EnvVarPtpDevices); found {
+	if value, found := r.DockyardsConfig.GetValueForKey(KeyPtpDevices); found {
 		patch.PTP.Devices = parseCommaSeparatedUnique(value)
 	}
 
