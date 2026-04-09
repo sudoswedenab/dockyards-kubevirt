@@ -14,11 +14,15 @@
 
 package controllers
 
+import (
+	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
+)
+
 // TODO: consider smarter loading of vars based on app prefix
 const (
-	EnvVarNoProxy    = "dockyards-kubevirt.env.NO_PROXY"
-	EnvVarHttpProxy  = "dockyards-kubevirt.env.HTTP_PROXY"
-	EnvVarHttpsProxy = "dockyards-kubevirt.env.HTTPS_PROXY"
-	EnvVarNtpServers = "dockyards-kubevirt.ntp.servers"
-	EnvVarPtpDevices = "dockyards-kubevirt.ptp.devices"
+	KeyNoProxy    dyconfig.Key = "dockyards-kubevirt.env.NO_PROXY"
+	KeyHttpProxy  dyconfig.Key = "dockyards-kubevirt.env.HTTP_PROXY"
+	KeyHttpsProxy dyconfig.Key = "dockyards-kubevirt.env.HTTPS_PROXY"
+	KeyNtpServers dyconfig.Key = "dockyards-kubevirt.ntp.servers"
+	KeyPtpDevices dyconfig.Key = "dockyards-kubevirt.ptp.devices"
 )

@@ -1057,7 +1057,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 	t.Run("test ntp servers", func(t *testing.T) {
 		reconcilerWithNTP := reconciler
 		reconcilerWithNTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
-			string(EnvVarNtpServers): " 193.41.26.2, time.cloudflare.com,193.41.26.2, ",
+			string(KeyNtpServers): " 193.41.26.2, time.cloudflare.com,193.41.26.2, ",
 		})
 
 		owner := dockyardsv1.Cluster{
@@ -1174,7 +1174,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 	t.Run("test ptp devices", func(t *testing.T) {
 		reconcilerWithPTP := reconciler
 		reconcilerWithPTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
-			string(EnvVarPtpDevices): " eth0, ens1f0, eth0, ",
+			string(KeyPtpDevices): " eth0, ens1f0, eth0, ",
 		})
 
 		owner := dockyardsv1.Cluster{
@@ -1291,8 +1291,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 	t.Run("test ntp servers and ptp devices", func(t *testing.T) {
 		reconcilerWithTimeSync := reconciler
 		reconcilerWithTimeSync.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
-			string(EnvVarNtpServers): "193.41.26.2,time.cloudflare.com",
-			string(EnvVarPtpDevices): "eth0,ens1f0",
+			string(KeyNtpServers): "193.41.26.2,time.cloudflare.com",
+			string(KeyPtpDevices): "eth0,ens1f0",
 		})
 
 		owner := dockyardsv1.Cluster{
@@ -1634,9 +1634,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
 			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
-				string(EnvVarHttpProxy):  "http://proxy.example.com:3128",
-				string(EnvVarHttpsProxy): "http://proxy.example.com:3128",
-				string(EnvVarNoProxy):    "localhost,127.0.0.1,.cluster.local",
+				string(KeyHttpProxy):  "http://proxy.example.com:3128",
+				string(KeyHttpsProxy): "http://proxy.example.com:3128",
+				string(KeyNoProxy):    "localhost,127.0.0.1,.cluster.local",
 			}),
 		}
 
@@ -1711,7 +1711,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
 			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
-				string(EnvVarNtpServers): "193.41.26.2,time.cloudflare.com",
+				string(KeyNtpServers): "193.41.26.2,time.cloudflare.com",
 			}),
 		}
 
@@ -1787,7 +1787,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
 			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
-				string(EnvVarPtpDevices): " eth0, ens1f0, eth0,",
+				string(KeyPtpDevices): " eth0, ens1f0, eth0,",
 			}),
 		}
 
