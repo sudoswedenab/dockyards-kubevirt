@@ -47,10 +47,10 @@ import (
 type DockyardsClusterReconciler struct {
 	client.Client
 
-	GatewayParentReference gatewayapiv1.ParentReference
-	DockyardsNamespace     string
-	DockyardsConfig        *dyconfig.ConfigManager
-	EnableWorkloadIngress  bool
+	GatewayParentReference      gatewayapiv1.ParentReference
+	DockyardsSystemNamespace    string
+	DockyardsConfig             *dyconfig.ConfigManager
+	EnableWorkloadIngress       bool
 }
 
 func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
