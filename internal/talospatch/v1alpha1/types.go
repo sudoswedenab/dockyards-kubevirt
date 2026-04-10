@@ -15,6 +15,7 @@
 package v1alpha1
 
 import (
+	"errors"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -212,7 +213,7 @@ func (c *APIServerConfig) IsZero() bool {
 	return true
 }
 
-type Args map[string][]string
+type Args map[string]ArgValue
 var _ yaml.IsZeroer = &Args{}
 
 func (a *Args) IsZero() bool {
@@ -221,9 +222,63 @@ func (a *Args) IsZero() bool {
 
 func (a *Args) Add(key string, value string) {
 	if *a == nil {
-		*a = map[string][]string{}
+		*a = map[string]ArgValue{}
 	}
 	(*a)[key] = append((*a)[key], value)
+}
+
+type ArgValue []string
+var _ yaml.IsZeroer = &ArgValue{}
+
+func (a *ArgValue) IsZero() bool {
+	return *a == nil
+}
+
+func (a *ArgValue) MarshalYAML() (any, error) {
+	if len(*a) == 0 {
+		return nil, nil
+	}
+
+	if len(*a) == 1 {
+        return &yaml.Node{
+            Kind:  yaml.ScalarNode,
+            Tag:   "!!str",
+            Value: (*a)[0],
+        }, nil
+    }
+
+	content := make([]*yaml.Node, 0, len(*a))
+	for _, value := range *a {
+		content = append(content, &yaml.Node{
+			Kind: yaml.ScalarNode,
+			Tag:  "!!str",
+			Value: value,
+		})
+	}
+
+	return &yaml.Node{
+		Kind: yaml.SequenceNode,
+		Tag:  "!!seq",
+		Content: content,
+	}, nil
+}
+
+func (v *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
+	// Try parsing scalar value
+    var scalar string
+    if err := unmarshal(&scalar); err == nil {
+		*v = append(*v, scalar)
+        return nil
+    }
+
+	// If it fails, try parsing it as an array instead
+    var list []string
+    if err := unmarshal(&list); err == nil {
+		*v = list
+        return nil
+    }
+
+    return errors.New("arg value must be a string or list of strings")
 }
 
 type ClusterDiscoveryConfig struct {
