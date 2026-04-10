@@ -201,7 +201,7 @@ func (c *ClusterConfig) IsZero() bool {
 
 type APIServerConfig struct {
 	CertSANs  []string `yaml:"certSANs,omitempty"`
-	ExtraArgs Args    `yaml:"extraArgs,omitempty"`
+	ExtraArgs Args     `yaml:"extraArgs,omitempty"`
 }
 var _ yaml.IsZeroer = &APIServerConfig{}
 
@@ -234,21 +234,22 @@ func (a *ArgValue) IsZero() bool {
 	return *a == nil
 }
 
-func (a *ArgValue) MarshalYAML() (any, error) {
-	if len(*a) == 0 {
+// NOTE: `a` needs to not be passed by reference, since otherwise the yaml package will not call this function.
+func (a ArgValue) MarshalYAML() (any, error) {
+	if len(a) == 0 {
 		return nil, nil
 	}
 
-	if len(*a) == 1 {
+	if len(a) == 1 {
         return &yaml.Node{
             Kind:  yaml.ScalarNode,
             Tag:   "!!str",
-            Value: (*a)[0],
+            Value: (a)[0],
         }, nil
     }
 
-	content := make([]*yaml.Node, 0, len(*a))
-	for _, value := range *a {
+	content := make([]*yaml.Node, 0, len(a))
+	for _, value := range a {
 		content = append(content, &yaml.Node{
 			Kind: yaml.ScalarNode,
 			Tag:  "!!str",
