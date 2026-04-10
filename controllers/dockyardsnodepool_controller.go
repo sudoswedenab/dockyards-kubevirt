@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/ptr"
@@ -372,7 +373,10 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.Config {
+func (r *DockyardsNodePoolReconciler) talosConfigPatch(
+	dockyardsCluster *dockyardsv1.Cluster,
+	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI unstructured.Unstructured,
+) (talospatchv1.Config, error) {
 	// This is the patches we apply to the main talos config
 	// The file look something like this:
 	//
@@ -442,7 +446,26 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 		patch.Cluster.Discovery.Registries.Service.Endpoint = r.TalosClusterDiscoveryServiceEndpoint
 	}
 
-	return patch
+	// Authentication configuration
+	obj := unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
+	authenticationConfig, found, err := unstructured.NestedMap(obj, "spec", "authenticationConfig")
+	if err == nil && found {
+		content, err := yaml.Marshal(authenticationConfig)
+		if err != nil {
+			return talospatchv1.Config{}, fmt.Errorf("could not marshal authentication config: %w", err)
+		}
+
+		patch.Machine.Files = append(patch.Machine.Files, talospatchv1.MachineFile{
+			Content: string(content),
+			Permissions: 0o444,
+			Path: "/manifests/authentication-config.yaml",
+			Op: "overwrite",
+		})
+
+		patch.Cluster.APIServer.ExtraArgs.Add("--authentication-config", "/var/manifests/authentication-config.yaml")
+    }
+
+	return patch, nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.TimeSyncConfig {
@@ -481,10 +504,32 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 }
 
 func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
+	ctx context.Context, // FIXME: Remove context parameter when we no longer need to Get unstructured cluster
 	dockyardsCluster *dockyardsv1.Cluster,
 	strategicPatches *StrategicPatches,
 ) error {
-	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
+	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "dockyards.io/v1alpha3",
+			"kind": "Cluster",
+			"metadata": map[string]interface{}{
+				"name": dockyardsCluster.Name,
+				"namespace": dockyardsCluster.Namespace,
+			},
+		},
+	}
+
+	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
+	if err != nil {
+		return fmt.Errorf("could not get unstructured cluster object: %w", err)
+	}
+
+	patch, err := r.talosConfigPatch(dockyardsCluster, unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
+	if err != nil {
+		return fmt.Errorf("could not create talos config patch: %w", err)
+	}
+	
+	err = strategicPatches.Add(&patch)
 	if err != nil {
 		return fmt.Errorf("could not add talos config patches: %w", err)
 	}
@@ -508,7 +553,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 	var strategicPatches StrategicPatches
 
-	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
+	err := r.addSharedConfigPatches(ctx, dockyardsCluster, &strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
@@ -608,7 +653,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 
 	var strategicPatches StrategicPatches
 
-	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
+	err := r.addSharedConfigPatches(ctx, dockyardsCluster, &strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
