@@ -373,10 +373,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsNodePoolReconciler) talosConfigPatch(
-	dockyardsCluster *dockyardsv1.Cluster,
-	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI unstructured.Unstructured,
-) (talospatchv1.Config, error) {
+func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.Config {
 	// This is the patches we apply to the main talos config
 	// The file look something like this:
 	//
@@ -446,26 +443,7 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(
 		patch.Cluster.Discovery.Registries.Service.Endpoint = r.TalosClusterDiscoveryServiceEndpoint
 	}
 
-	// Authentication configuration
-	obj := unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
-	authenticationConfig, found, err := unstructured.NestedMap(obj, "spec", "authenticationConfig")
-	if err == nil && found {
-		content, err := yaml.Marshal(authenticationConfig)
-		if err != nil {
-			return talospatchv1.Config{}, fmt.Errorf("could not marshal authentication config: %w", err)
-		}
-
-		patch.Machine.Files = append(patch.Machine.Files, talospatchv1.MachineFile{
-			Content: string(content),
-			Permissions: 0o444,
-			Path: "/manifests/authentication-config.yaml",
-			Op: "overwrite",
-		})
-
-		patch.Cluster.APIServer.ExtraArgs.Add("--authentication-config", "/var/manifests/authentication-config.yaml")
-    }
-
-	return patch, nil
+	return patch
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.TimeSyncConfig {
@@ -508,28 +486,7 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	dockyardsCluster *dockyardsv1.Cluster,
 	strategicPatches *StrategicPatches,
 ) error {
-	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "dockyards.io/v1alpha3",
-			"kind": "Cluster",
-			"metadata": map[string]interface{}{
-				"name": dockyardsCluster.Name,
-				"namespace": dockyardsCluster.Namespace,
-			},
-		},
-	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
-	if err != nil {
-		return fmt.Errorf("could not get unstructured cluster object: %w", err)
-	}
-
-	patch, err := r.talosConfigPatch(dockyardsCluster, unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
-	if err != nil {
-		return fmt.Errorf("could not create talos config patch: %w", err)
-	}
-	
-	err = strategicPatches.Add(&patch)
+	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
 	if err != nil {
 		return fmt.Errorf("could not add talos config patches: %w", err)
 	}
@@ -575,6 +532,41 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
 		controlPlanePatch.Cluster.Network.CNI.Name = ptr.To("none")
 	}
+
+	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "dockyards.io/v1alpha3",
+			"kind": "Cluster",
+			"metadata": map[string]interface{}{
+				"name": dockyardsCluster.Name,
+				"namespace": dockyardsCluster.Namespace,
+			},
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("could not get unstructured cluster object: %w", err)
+	}
+
+	// Authentication configuration
+	obj := unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
+	authenticationConfig, found, err := unstructured.NestedMap(obj, "spec", "authenticationConfig")
+	if err == nil && found {
+		content, err := yaml.Marshal(authenticationConfig)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("could not marshal authentication config: %w", err)
+		}
+
+		controlPlanePatch.Machine.Files = append(controlPlanePatch.Machine.Files, talospatchv1.MachineFile{
+			Content: string(content),
+			Permissions: 0o444,
+			Path: "/manifests/authentication-config.yaml",
+			Op: "overwrite",
+		})
+
+		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("--authentication-config", "/var/manifests/authentication-config.yaml")
+    }
 
 	err = strategicPatches.Add(&controlPlanePatch)
 	if err != nil {
