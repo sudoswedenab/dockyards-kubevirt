@@ -562,7 +562,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 			Content: string(content),
 			Permissions: 0o444,
 			Path: "/manifests/authentication-config.yaml",
-			Op: "overwrite",
+			Op: "create",
 		})
 
 		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("--authentication-config", "/var/manifests/authentication-config.yaml")
