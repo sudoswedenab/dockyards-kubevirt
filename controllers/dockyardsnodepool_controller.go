@@ -64,12 +64,12 @@ type StrategicPatches []string
 type DockyardsNodePoolReconciler struct {
 	client.Client
 
-	TalosClusterDiscoveryServiceEndpoint   string
-	DataVolumeStorageClassName      *string
-	EnableMultus                    bool
-	ValidNodeIPSubnets              []string
-	UseBlockStorage                 bool
-	DockyardsConfig                 *dyconfig.ConfigManager
+	TalosClusterDiscoveryServiceEndpoint string
+	DataVolumeStorageClassName           *string
+	EnableMultus                         bool
+	ValidNodeIPSubnets                   []string
+	UseBlockStorage                      bool
+	DockyardsConfig                      *dyconfig.ConfigManager
 }
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -466,7 +466,7 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 	patch := talospatchv1.TimeSyncConfig{
 		Meta: talospatchv1.Meta{
 			APIVersion: talospatchv1.TimeSyncConfigAPIVersion,
-			Kind: talospatchv1.TimeSyncConfigKind,
+			Kind:       talospatchv1.TimeSyncConfigKind,
 		},
 	}
 
@@ -536,9 +536,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "dockyards.io/v1alpha3",
-			"kind": "Cluster",
+			"kind":       "Cluster",
 			"metadata": map[string]interface{}{
-				"name": dockyardsCluster.Name,
+				"name":      dockyardsCluster.Name,
 				"namespace": dockyardsCluster.Namespace,
 			},
 		},
@@ -559,14 +559,14 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		}
 
 		controlPlanePatch.Machine.Files = append(controlPlanePatch.Machine.Files, talospatchv1.MachineFile{
-			Content: string(content),
+			Content:     string(content),
 			Permissions: 0o444,
-			Path: "/manifests/authentication-config.yaml",
-			Op: "create",
+			Path:        "/var/manifests/authentication.yaml",
+			Op:          "create",
 		})
 
-		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("--authentication-config", "/var/manifests/authentication-config.yaml")
-    }
+		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("authentication-config", "/var/manifests/authentication.yaml")
+	}
 
 	err = strategicPatches.Add(&controlPlanePatch)
 	if err != nil {
