@@ -566,6 +566,11 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		})
 
 		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("authentication-config", "/var/manifests/authentication.yaml")
+		controlPlanePatch.Cluster.APIServer.ExtraVolumes = append(controlPlanePatch.Cluster.APIServer.ExtraVolumes, talospatchv1.ExtraVolume{
+			HostPath:  "/var/manifests/authentication.yaml",
+			MountPath: "/var/manifests/authentication.yaml",
+			Readonly:  true,
+		})
 	}
 
 	err = strategicPatches.Add(&controlPlanePatch)
