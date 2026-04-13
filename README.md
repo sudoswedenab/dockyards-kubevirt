@@ -132,9 +132,10 @@ go build ./...
 
 The controller reads selected keys from the Dockyards ConfigMap (configured via `--config-map` / `--dockyards-namespace`):
 
-- `dockyards-kubevirt.env.HTTP_PROXY`, `dockyards-kubevirt.env.HTTPS_PROXY`, `dockyards-kubevirt.env.NO_PROXY`
-- `dockyards-kubevirt.ntp.servers` (comma-separated NTP servers for Talos `TimeSyncConfig`)
-- `dockyards-kubevirt.ptp.devices` (comma-separated PTP device names for Talos `TimeSyncConfig`)
+ - `dockyards-kubevirt.env.HTTP_PROXY`, `dockyards-kubevirt.env.HTTPS_PROXY`, `dockyards-kubevirt.env.NO_PROXY`
+ - `dockyards-kubevirt.ntp.servers` (comma-separated NTP servers for Talos `TimeSyncConfig`)
+ - `dockyards-kubevirt.ptp.devices` (comma-separated PTP device names for Talos `TimeSyncConfig`)
+ - `dockyards-kubevirt.staticRoutes` (YAML/JSON map of interface name -> list of Talos `RouteConfig` objects; each entry is applied as a Talos `LinkConfig` for both control plane and workers)
 
 ## Deployment
 

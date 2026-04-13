@@ -17,6 +17,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -481,6 +482,69 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 	return patch
 }
 
+func (r *DockyardsNodePoolReconciler) staticRoutesConfigPatches() ([]talospatchv1.LinkConfig, error) {
+	// Configure static routes using Talos LinkConfig routes (Talos v1.12+).
+	//
+	// The Dockyards config map value is expected to be a YAML/JSON map of interface name -> list of RouteConfig objects.
+	// Example:
+	// eth0:
+	//   - destination: 10.0.0.0/8
+	//     gateway: 10.0.0.1
+	//     metric: 100
+	value, found := r.DockyardsConfig.GetValueForKey(KeyStaticRoutes)
+	if !found {
+		return nil, nil
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	var routesByInterface map[string][]talospatchv1.RouteConfig
+	err := yaml.Unmarshal([]byte(value), &routesByInterface)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse %s: %w", KeyStaticRoutes, err)
+	}
+
+	if len(routesByInterface) == 0 {
+		return nil, nil
+	}
+
+	trimmed := make(map[string][]talospatchv1.RouteConfig, len(routesByInterface))
+	names := make([]string, 0, len(routesByInterface))
+	for name, routes := range routesByInterface {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("%s: interface name must not be empty", KeyStaticRoutes)
+		}
+		if len(routes) == 0 {
+			continue
+		}
+		trimmed[name] = routes
+		names = append(names, name)
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	sort.Strings(names)
+	patches := make([]talospatchv1.LinkConfig, 0, len(names))
+	for _, name := range names {
+		patches = append(patches, talospatchv1.LinkConfig{
+			Meta: talospatchv1.Meta{
+				APIVersion: talospatchv1.LinkConfigAPIVersion,
+				Kind:       talospatchv1.LinkConfigKind,
+			},
+			Name:   name,
+			Routes: trimmed[name],
+		})
+	}
+
+	return patches, nil
+}
+
 func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	ctx context.Context, // FIXME: Remove context parameter when we no longer need to Get unstructured cluster
 	dockyardsCluster *dockyardsv1.Cluster,
@@ -494,6 +558,16 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	err = strategicPatches.Add(ptr.To(r.timeSyncConfigPatch(dockyardsCluster)))
 	if err != nil {
 		return fmt.Errorf("could not add time sync config patches: %w", err)
+	}
+
+	staticRoutesPatches, err := r.staticRoutesConfigPatches()
+	if err != nil {
+		return err
+	}
+	for i := range staticRoutesPatches {
+		if err := strategicPatches.Add(&staticRoutesPatches[i]); err != nil {
+			return fmt.Errorf("could not add static routes patch: %w", err)
+		}
 	}
 
 	return nil
