@@ -482,6 +482,27 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 	return patch
 }
 
+func (r *DockyardsNodePoolReconciler) dhcpv4ConfigPatch() talospatchv1.DHCPv4Config {
+	// Configure DHCPv4 using the Talos DHCPv4Config document (Talos v1.12+).
+	//
+	// Example:
+	// apiVersion: v1alpha1
+	// kind: DHCPv4Config
+	// name: eth1
+	patch := talospatchv1.DHCPv4Config{
+		Meta: talospatchv1.Meta{
+			APIVersion: talospatchv1.DHCPv4ConfigAPIVersion,
+			Kind:       talospatchv1.DHCPv4ConfigKind,
+		},
+	}
+
+	if value, found := r.DockyardsConfig.GetValueForKey(KeyDHCPv4Iface); found {
+		patch.Name = strings.TrimSpace(value)
+	}
+
+	return patch
+}
+
 func (r *DockyardsNodePoolReconciler) staticRoutesConfigPatches() ([]talospatchv1.LinkConfig, error) {
 	// Configure static routes using Talos LinkConfig routes (Talos v1.12+).
 	//
@@ -558,6 +579,11 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	err = strategicPatches.Add(ptr.To(r.timeSyncConfigPatch(dockyardsCluster)))
 	if err != nil {
 		return fmt.Errorf("could not add time sync config patches: %w", err)
+	}
+
+	err = strategicPatches.Add(ptr.To(r.dhcpv4ConfigPatch()))
+	if err != nil {
+		return fmt.Errorf("could not add dhcpv4 config patches: %w", err)
 	}
 
 	staticRoutesPatches, err := r.staticRoutesConfigPatches()

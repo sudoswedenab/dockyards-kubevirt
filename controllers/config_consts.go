@@ -25,5 +25,6 @@ const (
 	KeyHttpsProxy   dyconfig.Key = "dockyards-kubevirt.env.HTTPS_PROXY"
 	KeyNtpServers   dyconfig.Key = "dockyards-kubevirt.ntp.servers"
 	KeyPtpDevices   dyconfig.Key = "dockyards-kubevirt.ptp.devices"
+	KeyDHCPv4Iface  dyconfig.Key = "dockyards-kubevirt.dhcpv4config.interfaceName"
 	KeyStaticRoutes dyconfig.Key = "dockyards-kubevirt.staticRoutes"
 )
