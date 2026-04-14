@@ -51,6 +51,7 @@ func main() {
 	var validNodeIPSubnets []string
 	var enableWorkloadIngress bool
 	var useBlockStorage bool
+	var useClusterTopology bool
 	var talosClusterDiscoveryServiceEndpoint string
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
@@ -62,6 +63,7 @@ func main() {
 	pflag.BoolVar(&useBlockStorage, "use-block-storage", true, "use block storage")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
+	pflag.BoolVar(&useClusterTopology, "use-cluster-topology", true, "use CAPI ClusterClass topology instead of low-level control plane and machine deployment resources")
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
 	pflag.Parse()
 
@@ -140,7 +142,8 @@ func main() {
 	}
 
 	err = (&controllers.ClusterAPIClusterReconciler{
-		Client: mgr.GetClient(),
+		Client:             mgr.GetClient(),
+		UseClusterTopology: useClusterTopology,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating clusterapi cluster reconciler")
@@ -149,13 +152,14 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsNodePoolReconciler{
-		Client:                                 mgr.GetClient(),
-		TalosClusterDiscoveryServiceEndpoint:   talosClusterDiscoveryServiceEndpoint,
-		DataVolumeStorageClassName:             &dataVolumeStorageClassName,
-		EnableMultus:                           enableMultus,
-		UseBlockStorage:                        useBlockStorage,
-		ValidNodeIPSubnets:                     validNodeIPSubnets,
-		DockyardsConfig:                        dockyardsConfig,
+		Client:                               mgr.GetClient(),
+		TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
+		DataVolumeStorageClassName:           &dataVolumeStorageClassName,
+		EnableMultus:                         enableMultus,
+		UseBlockStorage:                      useBlockStorage,
+		UseClusterTopology:                   useClusterTopology,
+		ValidNodeIPSubnets:                   validNodeIPSubnets,
+		DockyardsConfig:                      dockyardsConfig,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")
@@ -173,11 +177,11 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsClusterReconciler{
-		Client:                 mgr.GetClient(),
-		GatewayParentReference: gatewayParentReference,
+		Client:                   mgr.GetClient(),
+		GatewayParentReference:   gatewayParentReference,
 		DockyardsSystemNamespace: dockyardsSystemNamespace,
-		DockyardsConfig:        dockyardsConfig,
-		EnableWorkloadIngress:  enableWorkloadIngress,
+		DockyardsConfig:          dockyardsConfig,
+		EnableWorkloadIngress:    enableWorkloadIngress,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards cluster reconciler")
