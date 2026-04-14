@@ -438,6 +438,22 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 		patch.Machine.Env.Set("https_proxy", value)
 	}
 
+	// Allow users to ignore interfaces which should not be managed by Talos.
+	// Config key is expected to be a comma-separated list, e.g. "eth0,eth1".
+	if value, found := r.DockyardsConfig.GetValueForKey(KeyIgnoreInterfaces); found {
+		interfaces := parseCommaSeparatedUnique(value)
+		if len(interfaces) > 0 {
+			sort.Strings(interfaces)
+			patch.Machine.Network.Interfaces = make([]talospatchv1.MachineInterface, 0, len(interfaces))
+			for _, name := range interfaces {
+				patch.Machine.Network.Interfaces = append(patch.Machine.Network.Interfaces, talospatchv1.MachineInterface{
+					Interface: name,
+					Ignore:    true,
+				})
+			}
+		}
+	}
+
 	if r.TalosClusterDiscoveryServiceEndpoint == "0" {
 		patch.Cluster.Discovery.Registries.Service.Disabled = ptr.To(true)
 	} else {

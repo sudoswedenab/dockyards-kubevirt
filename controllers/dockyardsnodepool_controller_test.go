@@ -1523,6 +1523,101 @@ eth0:
 		}
 	})
 
+	t.Run("test controlplane ignore interfaces", func(t *testing.T) {
+		reconcilerWithIgnoredIfaces := reconciler
+		reconcilerWithIgnoredIfaces.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
+			string(KeyIgnoreInterfaces): " ens8f1np1,ens8f0np0,ens8f1np1, ",
+		})
+
+		owner := dockyardsv1.Cluster{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-", Namespace: namespace.Name}}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{Host: "localhost", Port: 6443}
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cluster := clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: owner.Name, Namespace: owner.Namespace}}
+		err = c.Create(ctx, &cluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{ObjectMeta: metav1.ObjectMeta{GenerateName: owner.Name + "-test-", Namespace: owner.Namespace}}
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconcilerWithIgnoredIfaces.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual controlplanev1.TalosControlPlane
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		configPatch, err := yaml.Marshal(talospatchv1.Config{
+			Version: talospatchv1.ConfigVersion,
+			Cluster: talospatchv1.ClusterConfig{
+				APIServer: talospatchv1.APIServerConfig{CertSANs: []string{owner.Status.APIEndpoint.Host}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ignoredInterfacesPatch, err := yaml.Marshal(talospatchv1.Config{
+			Version: talospatchv1.ConfigVersion,
+			Machine: talospatchv1.MachineConfig{
+				Network: talospatchv1.MachineNetworkConfig{
+					Interfaces: []talospatchv1.MachineInterface{
+						{Interface: "ens8f0np0", Ignore: true},
+						{Interface: "ens8f1np1", Ignore: true},
+					},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := controlplanev1.TalosControlPlane{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: controlplanev1.TalosControlPlaneSpec{
+				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
+					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
+						GenerateType: "controlplane",
+						StrategicPatches: []string{
+							string(ignoredInterfacesPatch),
+							string(configPatch),
+						},
+						TalosVersion: "v1.12",
+					},
+				},
+				InfrastructureTemplate: corev1.ObjectReference{
+					APIVersion: providerv1.GroupVersion.String(),
+					Kind:       "KubevirtMachineTemplate",
+					Name:       nodePool.Name,
+					Namespace:  nodePool.Namespace,
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
+		}
+	})
+
 	t.Run("test controlplane dhcpv4 interface name", func(t *testing.T) {
 		reconcilerWithDHCP := reconciler
 		reconcilerWithDHCP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
