@@ -498,25 +498,37 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 	return patch
 }
 
-func (r *DockyardsNodePoolReconciler) dhcpv4ConfigPatch() talospatchv1.DHCPv4Config {
+func (r *DockyardsNodePoolReconciler) dhcpv4ConfigPatches() ([]talospatchv1.DHCPv4Config, error) {
 	// Configure DHCPv4 using the Talos DHCPv4Config document (Talos v1.12+).
 	//
+	// The Dockyards config map value is expected to be a comma-separated list of interface names.
 	// Example:
 	// apiVersion: v1alpha1
 	// kind: DHCPv4Config
 	// name: eth1
-	patch := talospatchv1.DHCPv4Config{
-		Meta: talospatchv1.Meta{
-			APIVersion: talospatchv1.DHCPv4ConfigAPIVersion,
-			Kind:       talospatchv1.DHCPv4ConfigKind,
-		},
+	value, found := r.DockyardsConfig.GetValueForKey(KeyDHCPv4Ifaces)
+	if !found {
+		return nil, nil
 	}
 
-	if value, found := r.DockyardsConfig.GetValueForKey(KeyDHCPv4Iface); found {
-		patch.Name = strings.TrimSpace(value)
+	names := parseCommaSeparatedUnique(value)
+	if len(names) == 0 {
+		return nil, nil
 	}
 
-	return patch
+	sort.Strings(names)
+	patches := make([]talospatchv1.DHCPv4Config, 0, len(names))
+	for _, name := range names {
+		patches = append(patches, talospatchv1.DHCPv4Config{
+			Meta: talospatchv1.Meta{
+				APIVersion: talospatchv1.DHCPv4ConfigAPIVersion,
+				Kind:       talospatchv1.DHCPv4ConfigKind,
+			},
+			Name: name,
+		})
+	}
+
+	return patches, nil
 }
 
 func (r *DockyardsNodePoolReconciler) staticRoutesConfigPatches() ([]talospatchv1.LinkConfig, error) {
@@ -597,9 +609,14 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 		return fmt.Errorf("could not add time sync config patches: %w", err)
 	}
 
-	err = strategicPatches.Add(ptr.To(r.dhcpv4ConfigPatch()))
+	dhcpPatches, err := r.dhcpv4ConfigPatches()
 	if err != nil {
-		return fmt.Errorf("could not add dhcpv4 config patches: %w", err)
+		return err
+	}
+	for i := range dhcpPatches {
+		if err := strategicPatches.Add(&dhcpPatches[i]); err != nil {
+			return fmt.Errorf("could not add dhcpv4 config patch: %w", err)
+		}
 	}
 
 	staticRoutesPatches, err := r.staticRoutesConfigPatches()
