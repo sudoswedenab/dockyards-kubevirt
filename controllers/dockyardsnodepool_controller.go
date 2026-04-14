@@ -17,7 +17,7 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -438,22 +438,6 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 		patch.Machine.Env.Set("https_proxy", value)
 	}
 
-	// Allow users to ignore interfaces which should not be managed by Talos.
-	// Config key is expected to be a comma-separated list, e.g. "eth0,eth1".
-	if value, found := r.DockyardsConfig.GetValueForKey(KeyIgnoreInterfaces); found {
-		interfaces := parseCommaSeparatedUnique(value)
-		if len(interfaces) > 0 {
-			sort.Strings(interfaces)
-			patch.Machine.Network.Interfaces = make([]talospatchv1.MachineInterface, 0, len(interfaces))
-			for _, name := range interfaces {
-				patch.Machine.Network.Interfaces = append(patch.Machine.Network.Interfaces, talospatchv1.MachineInterface{
-					Interface: name,
-					Ignore:    true,
-				})
-			}
-		}
-	}
-
 	if r.TalosClusterDiscoveryServiceEndpoint == "0" {
 		patch.Cluster.Discovery.Registries.Service.Disabled = ptr.To(true)
 	} else {
@@ -498,105 +482,9 @@ func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch(dockyardsCluster *dock
 	return patch
 }
 
-func (r *DockyardsNodePoolReconciler) dhcpv4ConfigPatches() ([]talospatchv1.DHCPv4Config, error) {
-	// Configure DHCPv4 using the Talos DHCPv4Config document (Talos v1.12+).
-	//
-	// The Dockyards config map value is expected to be a comma-separated list of interface names.
-	// Example:
-	// apiVersion: v1alpha1
-	// kind: DHCPv4Config
-	// name: eth1
-	value, found := r.DockyardsConfig.GetValueForKey(KeyDHCPv4Ifaces)
-	if !found {
-		return nil, nil
-	}
-
-	names := parseCommaSeparatedUnique(value)
-	if len(names) == 0 {
-		return nil, nil
-	}
-
-	sort.Strings(names)
-	patches := make([]talospatchv1.DHCPv4Config, 0, len(names))
-	for _, name := range names {
-		patches = append(patches, talospatchv1.DHCPv4Config{
-			Meta: talospatchv1.Meta{
-				APIVersion: talospatchv1.DHCPv4ConfigAPIVersion,
-				Kind:       talospatchv1.DHCPv4ConfigKind,
-			},
-			Name: name,
-		})
-	}
-
-	return patches, nil
-}
-
-func (r *DockyardsNodePoolReconciler) staticRoutesConfigPatches() ([]talospatchv1.LinkConfig, error) {
-	// Configure static routes using Talos LinkConfig routes (Talos v1.12+).
-	//
-	// The Dockyards config map value is expected to be a YAML/JSON map of interface name -> list of RouteConfig objects.
-	// Example:
-	// eth0:
-	//   - destination: 10.0.0.0/8
-	//     gateway: 10.0.0.1
-	//     metric: 100
-	value, found := r.DockyardsConfig.GetValueForKey(KeyStaticRoutes)
-	if !found {
-		return nil, nil
-	}
-
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-
-	var routesByInterface map[string][]talospatchv1.RouteConfig
-	err := yaml.Unmarshal([]byte(value), &routesByInterface)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse %s: %w", KeyStaticRoutes, err)
-	}
-
-	if len(routesByInterface) == 0 {
-		return nil, nil
-	}
-
-	trimmed := make(map[string][]talospatchv1.RouteConfig, len(routesByInterface))
-	names := make([]string, 0, len(routesByInterface))
-	for name, routes := range routesByInterface {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return nil, fmt.Errorf("%s: interface name must not be empty", KeyStaticRoutes)
-		}
-		if len(routes) == 0 {
-			continue
-		}
-		trimmed[name] = routes
-		names = append(names, name)
-	}
-
-	if len(names) == 0 {
-		return nil, nil
-	}
-
-	sort.Strings(names)
-	patches := make([]talospatchv1.LinkConfig, 0, len(names))
-	for _, name := range names {
-		patches = append(patches, talospatchv1.LinkConfig{
-			Meta: talospatchv1.Meta{
-				APIVersion: talospatchv1.LinkConfigAPIVersion,
-				Kind:       talospatchv1.LinkConfigKind,
-			},
-			Name:   name,
-			Routes: trimmed[name],
-		})
-	}
-
-	return patches, nil
-}
-
 func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
-	ctx context.Context, // FIXME: Remove context parameter when we no longer need to Get unstructured cluster
 	dockyardsCluster *dockyardsv1.Cluster,
+	unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI unstructured.Unstructured,
 	strategicPatches *StrategicPatches,
 ) error {
 	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
@@ -609,23 +497,12 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 		return fmt.Errorf("could not add time sync config patches: %w", err)
 	}
 
-	dhcpPatches, err := r.dhcpv4ConfigPatches()
-	if err != nil {
-		return err
-	}
-	for i := range dhcpPatches {
-		if err := strategicPatches.Add(&dhcpPatches[i]); err != nil {
-			return fmt.Errorf("could not add dhcpv4 config patch: %w", err)
-		}
-	}
-
-	staticRoutesPatches, err := r.staticRoutesConfigPatches()
-	if err != nil {
-		return err
-	}
-	for i := range staticRoutesPatches {
-		if err := strategicPatches.Add(&staticRoutesPatches[i]); err != nil {
-			return fmt.Errorf("could not add static routes patch: %w", err)
+	value := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object;
+	patches, found, err := unstructured.NestedSlice(value, "spec", "advanced", "kubevirt", "talos", "additionalSharedConfigPatches")
+	if found && err == nil {
+		err = strategicPatches.AddManyUnstructured(patches)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -635,6 +512,22 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "dockyards.io/v1alpha3",
+			"kind": "Cluster",
+			"metadata": map[string]any{
+				"name": dockyardsCluster.Name,
+				"namespace": dockyardsCluster.Namespace,
+			},
+		},
+	}
+
+	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("could not get unstructured cluster object: %w", err)
+	}
+
 	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, WaitingForClusterEndpointReason, "")
 
@@ -643,7 +536,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 	var strategicPatches StrategicPatches
 
-	err := r.addSharedConfigPatches(ctx, dockyardsCluster, &strategicPatches)
+	err = r.addSharedConfigPatches(dockyardsCluster, unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI, &strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
@@ -666,24 +559,8 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		controlPlanePatch.Cluster.Network.CNI.Name = ptr.To("none")
 	}
 
-	unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "dockyards.io/v1alpha3",
-			"kind":       "Cluster",
-			"metadata": map[string]interface{}{
-				"name":      dockyardsCluster.Name,
-				"namespace": dockyardsCluster.Namespace,
-			},
-		},
-	}
-
-	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("could not get unstructured cluster object: %w", err)
-	}
-
 	// Authentication configuration
-	obj := unstructuredClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
+	obj := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
 	authenticationConfig, found, err := unstructured.NestedMap(obj, "spec", "authenticationConfig")
 	if err == nil && found {
 		content, err := yaml.Marshal(authenticationConfig)
@@ -711,6 +588,15 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
 		return ctrl.Result{}, nil
+	}
+
+	value := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object;
+	patches, found, err := unstructured.NestedSlice(value, "spec", "advanced", "kubevirt", "talos", "additionalControlPlaneConfigPatches")
+	if found && err == nil {
+		err = strategicPatches.AddManyUnstructured(patches)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	talosControlPlane := controlplanev1.TalosControlPlane{
@@ -781,11 +667,36 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "dockyards.io/v1alpha3",
+			"kind": "Cluster",
+			"metadata": map[string]any{
+				"name": dockyardsCluster.Name,
+				"namespace": dockyardsCluster.Namespace,
+			},
+		},
+	}
+
+	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("could not get unstructured cluster object: %w", err)
+	}
+
 	var strategicPatches StrategicPatches
 
-	err := r.addSharedConfigPatches(ctx, dockyardsCluster, &strategicPatches)
+	err = r.addSharedConfigPatches(dockyardsCluster, unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI, &strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	value := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object;
+	patches, found, err := unstructured.NestedSlice(value, "spec", "advanced", "kubevirt", "talos", "additionalWorkerConfigPatches")
+	if found && err == nil {
+		err = strategicPatches.AddManyUnstructured(patches)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	talosConfigTemplate := bootstrapv1.TalosConfigTemplate{
@@ -964,6 +875,24 @@ func (patches *StrategicPatches) Add(value yaml.IsZeroer) error {
 		return fmt.Errorf("could not marshal strategic patch: %w", err)
 	}
 	*patches = append(*patches, string(raw))
+	return nil
+}
+
+func (patches *StrategicPatches) AddManyUnstructured(value []any) error {
+	if len(value) == 0 {
+		// Nothing to add :)
+		return nil
+	}
+
+	*patches = slices.Grow(*patches, len(value))
+	for _, item := range value {
+		result, err := yaml.Marshal(item)
+		if err != nil {
+			return err
+		}
+		*patches = append(*patches, string(result))
+	}
+
 	return nil
 }
 

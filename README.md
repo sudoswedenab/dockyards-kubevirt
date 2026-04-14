@@ -135,9 +135,6 @@ The controller reads selected keys from the Dockyards ConfigMap (configured via 
  - `dockyards-kubevirt.env.HTTP_PROXY`, `dockyards-kubevirt.env.HTTPS_PROXY`, `dockyards-kubevirt.env.NO_PROXY`
  - `dockyards-kubevirt.ntp.servers` (comma-separated NTP servers for Talos `TimeSyncConfig`)
  - `dockyards-kubevirt.ptp.devices` (comma-separated PTP device names for Talos `TimeSyncConfig`)
- - `dockyards-kubevirt.dhcpv4config.interfaceNames` (comma-separated interface names for Talos `DHCPv4Config` documents, e.g. `eth1,eth2`)
- - `dockyards-kubevirt.ignoreInterfaces` (comma-separated interface names to mark ignored in Talos machine config, e.g. `ens8f0np0,ens8f1np1`)
- - `dockyards-kubevirt.staticRoutes` (YAML/JSON map of interface name -> list of Talos `RouteConfig` objects; each entry is applied as a Talos `LinkConfig` for both control plane and workers)
 
 ## Deployment
 
