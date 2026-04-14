@@ -44,27 +44,14 @@ func (c *Config) IsZero() bool {
 }
 
 type MachineConfig struct {
-	Network MachineNetworkConfig `yaml:"network,omitempty"`
 	Kubelet KubeletConfig        `yaml:"kubelet,omitempty"`
 	Env     Env                  `yaml:"env,omitempty"`
 	Files   []MachineFile        `yaml:"files,omitempty"`
 }
 
-type MachineNetworkConfig struct {
-	Interfaces []MachineInterface `yaml:"interfaces,omitempty" merge:"replace"`
-}
-
-type MachineInterface struct {
-	Interface string `yaml:"interface,omitempty"`
-	Ignore    bool   `yaml:"ignore,omitempty"`
-}
-
 var _ yaml.IsZeroer = &MachineConfig{}
 
 func (c *MachineConfig) IsZero() bool {
-	if c.Network.Interfaces != nil {
-		return false
-	}
 	if !c.Kubelet.IsZero() {
 		return false
 	}
