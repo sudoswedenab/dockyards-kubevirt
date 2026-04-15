@@ -74,7 +74,7 @@ flowchart TB
 The diagram highlights how the operator turns Dockyards CRs into Cluster API/KubeVirt/Talos artifacts, mirrors load balancer state from the remote workload cluster through a cluster cache, and wires the shared Gateway to the resulting services.
 
 To keep the diagram compact, flow nodes aggregate the work that would otherwise span many edges:
-- **Kubevirt Flow** bundles the node pool provisioning path: by default it builds a ClusterClass topology (`KubevirtClusterTemplate`, `TalosControlPlaneTemplate`, `TalosConfigTemplate`, `KubevirtMachineTemplate`) and can fall back to low-level `TalosControlPlane` and `MachineDeployment` resources when topology mode is disabled.
+- **Kubevirt Flow** bundles the node pool provisioning path: by default it builds a ClusterClass topology (`KubevirtClusterTemplate`, `TalosControlPlane`, `TalosConfigTemplate`, `KubevirtMachineTemplate`) and can fall back to low-level `TalosControlPlane` and `MachineDeployment` resources when topology mode is disabled.
 - **Workload Flow** abstracts the `DockyardsWorkloadReconciler` choreography that mirrors remote workload cluster services via `ClusterCache`, creates/patches the management-cluster `core/v1 Service`, and publishes HTTP/TLS routes to the shared gateway.
 - **Project Contour Flow** groups the gateway-side wiring (the `ClusterGatewayService` plus the Project Contour DaemonSet/Ingress components) that front the workload services for users.
 
@@ -91,7 +91,7 @@ To keep the diagram compact, flow nodes aggregate the work that would otherwise 
 
 ### KubeVirt and Talos provisioning
 The controller stack keeps the KubeVirt and Talos artifacts aligned with the Dockyards cluster and node pool specs:
-- Default mode (`--use-cluster-topology=true`) reconciles `ClusterClass` and `Cluster.spec.topology` from Dockyards `Cluster` and `NodePool` resources, wiring `KubevirtClusterTemplate`, `TalosControlPlaneTemplate`, `TalosConfigTemplate`, and `KubevirtMachineTemplate` references.
+- Default mode (`--use-cluster-topology=true`) reconciles `ClusterClass` and `Cluster.spec.topology` from Dockyards `Cluster` and `NodePool` resources, wiring `KubevirtClusterTemplate`, `TalosControlPlane`, `TalosConfigTemplate`, and `KubevirtMachineTemplate` references.
 - Legacy mode (`--use-cluster-topology=false`) keeps the previous low-level flow, reconciling `KubevirtCluster`, `TalosControlPlane`, `TalosConfigTemplate`, and `MachineDeployment` resources directly.
 - In both modes, node pool reconciliation keeps `KubevirtMachineTemplate` and Talos strategic patches in sync with node pool spec, release images, and shared config patches (Multus, custom node IPs, proxy/NTP/PTP, and advanced Talos patch escape hatches).
 - The release reconcilier creates/updates a CDI `DataVolume` and downstream `DataSource` that hold the latest Talos installer payload.
@@ -108,7 +108,7 @@ The controller stack keeps the KubeVirt and Talos artifacts aligned with the Doc
 
 ## Key components
 - **`ClusterAPIClusterReconciler`** (`controllers/clusterapicluster_controller.go`) runs in topology mode by default, reconciling `KubevirtClusterTemplate`, `ClusterClass`, and `Cluster.spec.topology` from Dockyards resources; in legacy mode it keeps `KubevirtCluster` and `Cluster.Spec.InfrastructureRef` in sync.
-- **`DockyardsNodePoolReconciler`** (`controllers/dockyardsnodepool_controller.go`) always reconciles `KubevirtMachineTemplate` and Talos worker bootstrap templates, and reconciles either `TalosControlPlaneTemplate` (topology mode) or `TalosControlPlane` plus `MachineDeployment` (legacy mode), while applying shared/advanced strategic patches and NodePool conditions.
+- **`DockyardsNodePoolReconciler`** (`controllers/dockyardsnodepool_controller.go`) always reconciles `KubevirtMachineTemplate`, `TalosControlPlane`, and Talos worker bootstrap templates; in topology mode the control plane object is used as the ClusterClass control-plane reference, while legacy mode also reconciles `MachineDeployment`, and both modes apply shared/advanced strategic patches and NodePool conditions.
 - **`DockyardsReleaseReconciler`** (`controllers/dockyardsrelease_controller.go`) watches Talos releases, downloads the installer into a CDI `DataVolume`, creates a `DataSource`, and gives the data source creator RBAC so the Talos bootstrap can access the payload.
 - **`DockyardsWorkloadReconciler`** (`controllers/dockyardsworkload_controller.go`) mirrors the workload cluster services into the management cluster, patches their LoadBalancer statuses through `ClusterCache`, and owns the HTTPRoute/TLSRoute objects that bind them to the gateway.
 - **`DockyardsNodeReconciler`** (`controllers/dockyardsnode_controller.go`) reads `KubevirtMachine` templates to update the Dockyards node resource with current CPU/Memory/Storage totals.
