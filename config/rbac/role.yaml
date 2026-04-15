@@ -57,6 +57,16 @@ rules:
 - apiGroups:
   - cluster.x-k8s.io
   resources:
+  - clusterclasses
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
   - clusters
   verbs:
   - get
@@ -114,6 +124,15 @@ rules:
   - dockyards.io
   resources:
   - clusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - dockyards.io
+  resources:
+  - clusters
+  - nodepools
   verbs:
   - get
   - list
@@ -216,6 +235,16 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - kubevirtclusters
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - kubevirtclustertemplates
   verbs:
   - create
   - get
