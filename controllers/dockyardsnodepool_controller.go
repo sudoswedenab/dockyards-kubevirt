@@ -56,7 +56,8 @@ import (
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=nodepools,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=dockyards.io,resources=nodepools,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=nodepools/status,verbs=patch;update
 // +kubebuilder:rbac:groups=dockyards.io,resources=releases,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tlsroutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachinetemplates,verbs=create;get;list;patch;watch
@@ -226,36 +227,34 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlaneTopologyReferenc
 		}
 	}
 
-	talosControlPlane := controlplanev1.TalosControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      dockyardsNodePool.Name,
-			Namespace: dockyardsNodePool.Namespace,
+	talosControlPlaneTemplate := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "controlplane.cluster.x-k8s.io/v1alpha3",
+			"kind":       "TalosControlPlaneTemplate",
+			"metadata": map[string]any{
+				"name":      dockyardsNodePool.Name,
+				"namespace": dockyardsNodePool.Namespace,
+			},
 		},
 	}
 
-	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlane, func() error {
-		talosControlPlane.Spec.Version = dockyardsCluster.Spec.Version
-
-		if dockyardsNodePool.Spec.Replicas != nil {
-			talosControlPlane.Spec.Replicas = dockyardsNodePool.Spec.Replicas
-		}
-
-		talosControlPlane.Spec.InfrastructureTemplate = corev1.ObjectReference{
-			APIVersion: providerv1.GroupVersion.String(),
-			Kind:       "KubevirtMachineTemplate",
-			Name:       dockyardsNodePool.Name,
-			Namespace:  dockyardsNodePool.Namespace,
-		}
-
-		talosControlPlane.Spec.ControlPlaneConfig = controlplanev1.ControlPlaneConfig{
-			ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-				GenerateType:     "controlplane",
-				TalosVersion:     "v1.12",
-				StrategicPatches: strategicPatches,
+	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlaneTemplate, func() error {
+		templateSpec := map[string]any{
+			"version": dockyardsCluster.Spec.Version,
+			"controlPlaneConfig": map[string]any{
+				"controlplane": bootstrapv1.TalosConfigSpec{
+					GenerateType:     "controlplane",
+					TalosVersion:     "v1.12",
+					StrategicPatches: strategicPatches,
+				},
 			},
 		}
 
-		return nil
+		if dockyardsNodePool.Spec.Replicas != nil {
+			templateSpec["replicas"] = *dockyardsNodePool.Spec.Replicas
+		}
+
+		return unstructured.SetNestedMap(talosControlPlaneTemplate.Object, templateSpec, "spec", "template", "spec")
 	})
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
@@ -264,7 +263,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlaneTopologyReferenc
 	}
 
 	if operationResult != controllerutil.OperationResultNone {
-		logger.Info("reconciled talos control plane for topology reference", "result", operationResult)
+		logger.Info("reconciled talos control plane template", "result", operationResult)
 	}
 
 	conditions.MarkTrue(dockyardsNodePool, TalosControlPlaneReconciledCondition, ReconciledReason, "")

@@ -162,7 +162,7 @@ func (r *ClusterAPIClusterReconciler) reconcileClusterClassTopology(ctx context.
 			LocalObjectTemplate: clusterv1.LocalObjectTemplate{
 				Ref: &corev1.ObjectReference{
 					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha3",
-					Kind:       "TalosControlPlane",
+					Kind:       "TalosControlPlaneTemplate",
 					Name:       controlPlaneNodePool.Name,
 				},
 			},

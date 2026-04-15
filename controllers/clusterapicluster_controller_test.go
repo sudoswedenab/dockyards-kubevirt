@@ -132,8 +132,8 @@ func TestClusterAPIClusterReconciler_reconcileClusterClassTopology(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if clusterClass.Spec.ControlPlane.Ref == nil || clusterClass.Spec.ControlPlane.Ref.Kind != "TalosControlPlane" {
-		t.Fatalf("expected control plane template ref to TalosControlPlane")
+	if clusterClass.Spec.ControlPlane.Ref == nil || clusterClass.Spec.ControlPlane.Ref.Kind != "TalosControlPlaneTemplate" {
+		t.Fatalf("expected control plane template ref to TalosControlPlaneTemplate")
 	}
 
 	if clusterClass.Spec.ControlPlane.Ref.Name != controlPlaneNodePool.Name {
