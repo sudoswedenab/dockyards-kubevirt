@@ -150,13 +150,9 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - dockyards.io
-  resources:
-  - nodepools/status
-  verbs:
   - patch
+  - update
+  - watch
 - apiGroups:
   - dockyards.io
   resources:
