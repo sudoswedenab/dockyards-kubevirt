@@ -16,6 +16,8 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -841,7 +843,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 
 	talosConfigTemplate := bootstrapv1.TalosConfigTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      dockyardsNodePool.Name,
+			Name:      talosConfigTemplateName(dockyardsNodePool.Name, strategicPatches),
 			Namespace: dockyardsNodePool.Namespace,
 		},
 	}
@@ -857,6 +859,12 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+
+	if dockyardsNodePool.Annotations == nil {
+		dockyardsNodePool.Annotations = map[string]string{}
+	}
+
+	dockyardsNodePool.Annotations[AnnotationTalosConfigTemplateName] = talosConfigTemplate.Name
 
 	conditions.MarkTrue(dockyardsNodePool, TalosConfigTemplateReconciledCondition, ReconciledReason, "")
 
@@ -896,7 +904,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 			ConfigRef: &corev1.ObjectReference{
 				APIVersion: bootstrapv1.GroupVersion.String(),
 				Kind:       "TalosConfigTemplate",
-				Name:       dockyardsNodePool.Name,
+				Name:       talosConfigTemplateNameForNodePool(dockyardsNodePool),
 			},
 		}
 
@@ -1034,6 +1042,23 @@ func (patches *StrategicPatches) AddManyUnstructured(value []any) error {
 	}
 
 	return nil
+}
+
+func talosConfigTemplateNameForNodePool(nodePool *dockyardsv1.NodePool) string {
+	if nodePool != nil {
+		if value, ok := nodePool.Annotations[AnnotationTalosConfigTemplateName]; ok && value != "" {
+			return value
+		}
+
+		return nodePool.Name
+	}
+
+	return ""
+}
+
+func talosConfigTemplateName(nodePoolName string, strategicPatches StrategicPatches) string {
+	hash := sha256.Sum256([]byte(strings.Join(strategicPatches, "\n---\n")))
+	return fmt.Sprintf("%s-%s", nodePoolName, hex.EncodeToString(hash[:6]))
 }
 
 func parseCommaSeparatedUnique(value string) []string {
