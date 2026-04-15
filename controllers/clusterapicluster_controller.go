@@ -163,7 +163,7 @@ func (r *ClusterAPIClusterReconciler) reconcileClusterClassTopology(ctx context.
 				Ref: &corev1.ObjectReference{
 					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha3",
 					Kind:       "TalosControlPlaneTemplate",
-					Name:       controlPlaneNodePool.Name,
+					Name:       talosControlPlaneTemplateNameForNodePool(controlPlaneNodePool),
 				},
 			},
 			MachineInfrastructure: &clusterv1.LocalObjectTemplate{
@@ -235,6 +235,18 @@ func (r *ClusterAPIClusterReconciler) reconcileClusterClassTopology(ctx context.
 	logger.Info("reconciled cluster topology and class", "clusterClass", clusterClass.Name)
 
 	return ctrl.Result{}, nil
+}
+
+func talosControlPlaneTemplateNameForNodePool(nodePool *dockyardsv1.NodePool) string {
+	if nodePool != nil {
+		if value, ok := nodePool.Annotations[AnnotationTalosControlPlaneTemplateName]; ok && value != "" {
+			return value
+		}
+
+		return nodePool.Name
+	}
+
+	return ""
 }
 
 func (r *ClusterAPIClusterReconciler) dockyardsClusterToCAPICluster(_ context.Context, obj client.Object) []ctrl.Request {

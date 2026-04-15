@@ -55,6 +55,7 @@ import (
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanes,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanetemplates,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=nodepools,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=dockyards.io,resources=nodepools/status,verbs=patch;update
@@ -232,7 +233,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlaneTopologyReferenc
 			"apiVersion": "controlplane.cluster.x-k8s.io/v1alpha3",
 			"kind":       "TalosControlPlaneTemplate",
 			"metadata": map[string]any{
-				"name":      dockyardsNodePool.Name,
+				"name":      talosControlPlaneTemplateName(dockyardsNodePool.Name, dockyardsCluster.Spec.Version, dockyardsNodePool.Spec.Replicas, strategicPatches),
 				"namespace": dockyardsNodePool.Namespace,
 			},
 		},
@@ -254,6 +255,19 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlaneTopologyReferenc
 			templateSpec["replicas"] = *dockyardsNodePool.Spec.Replicas
 		}
 
+		infrastructureRef := map[string]any{
+			"apiVersion": providerv1.GroupVersion.String(),
+			"kind":       "KubevirtMachineTemplate",
+			"name":       dockyardsNodePool.Name,
+			"namespace":  dockyardsNodePool.Namespace,
+		}
+
+		templateSpec["machineTemplate"] = map[string]any{
+			"infrastructureRef": infrastructureRef,
+		}
+
+		templateSpec["infrastructureTemplate"] = infrastructureRef
+
 		return unstructured.SetNestedMap(talosControlPlaneTemplate.Object, templateSpec, "spec", "template", "spec")
 	})
 	if err != nil {
@@ -265,6 +279,12 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlaneTopologyReferenc
 	if operationResult != controllerutil.OperationResultNone {
 		logger.Info("reconciled talos control plane template", "result", operationResult)
 	}
+
+	if dockyardsNodePool.Annotations == nil {
+		dockyardsNodePool.Annotations = map[string]string{}
+	}
+
+	dockyardsNodePool.Annotations[AnnotationTalosControlPlaneTemplateName] = talosControlPlaneTemplate.GetName()
 
 	conditions.MarkTrue(dockyardsNodePool, TalosControlPlaneReconciledCondition, ReconciledReason, "")
 
@@ -1057,6 +1077,22 @@ func talosConfigTemplateNameForNodePool(nodePool *dockyardsv1.NodePool) string {
 
 func talosConfigTemplateName(nodePoolName string, strategicPatches StrategicPatches) string {
 	hash := sha256.Sum256([]byte(strings.Join(strategicPatches, "\n---\n")))
+	return fmt.Sprintf("%s-%s", nodePoolName, hex.EncodeToString(hash[:6]))
+}
+
+func talosControlPlaneTemplateName(nodePoolName, kubernetesVersion string, replicas *int32, strategicPatches StrategicPatches) string {
+	replicasValue := int32(0)
+	if replicas != nil {
+		replicasValue = *replicas
+	}
+
+	hashInput := []string{
+		kubernetesVersion,
+		fmt.Sprintf("replicas:%d", replicasValue),
+		strings.Join(strategicPatches, "\n---\n"),
+	}
+
+	hash := sha256.Sum256([]byte(strings.Join(hashInput, "\n")))
 	return fmt.Sprintf("%s-%s", nodePoolName, hex.EncodeToString(hash[:6]))
 }
 

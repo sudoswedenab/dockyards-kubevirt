@@ -15,6 +15,7 @@
 package controllers
 
 const (
-	LabelNetworkAsDefault             = "kubevirt.dockyards.io/network-as-default"
-	AnnotationTalosConfigTemplateName = "kubevirt.dockyards.io/talos-config-template-name"
+	LabelNetworkAsDefault                   = "kubevirt.dockyards.io/network-as-default"
+	AnnotationTalosConfigTemplateName       = "kubevirt.dockyards.io/talos-config-template-name"
+	AnnotationTalosControlPlaneTemplateName = "kubevirt.dockyards.io/talos-control-plane-template-name"
 )

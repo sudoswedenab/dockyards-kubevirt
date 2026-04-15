@@ -60,6 +60,9 @@ func TestClusterAPIClusterReconciler_reconcileClusterClassTopology(t *testing.T)
 			Labels: map[string]string{
 				dockyardsv1.LabelClusterName: clusterName,
 			},
+			Annotations: map[string]string{
+				AnnotationTalosControlPlaneTemplateName: "cp-0-def456",
+			},
 		},
 		Spec: dockyardsv1.NodePoolSpec{
 			ControlPlane: true,
@@ -136,8 +139,8 @@ func TestClusterAPIClusterReconciler_reconcileClusterClassTopology(t *testing.T)
 		t.Fatalf("expected control plane template ref to TalosControlPlaneTemplate")
 	}
 
-	if clusterClass.Spec.ControlPlane.Ref.Name != controlPlaneNodePool.Name {
-		t.Fatalf("expected control plane template ref name %q, got %q", controlPlaneNodePool.Name, clusterClass.Spec.ControlPlane.Ref.Name)
+	if clusterClass.Spec.ControlPlane.Ref.Name != "cp-0-def456" {
+		t.Fatalf("expected control plane template ref name %q, got %q", "cp-0-def456", clusterClass.Spec.ControlPlane.Ref.Name)
 	}
 
 	if len(clusterClass.Spec.Workers.MachineDeployments) != 1 {
