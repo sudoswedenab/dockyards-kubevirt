@@ -74,6 +74,9 @@ func TestClusterAPIClusterReconciler_reconcileClusterClassTopology(t *testing.T)
 			Labels: map[string]string{
 				dockyardsv1.LabelClusterName: clusterName,
 			},
+			Annotations: map[string]string{
+				AnnotationTalosConfigTemplateName: "worker-0-abc123",
+			},
 		},
 		Spec: dockyardsv1.NodePoolSpec{
 			Replicas: &workerReplicas,
@@ -151,6 +154,11 @@ func TestClusterAPIClusterReconciler_reconcileClusterClassTopology(t *testing.T)
 
 	if clusterClass.Spec.Workers.MachineDeployments[0].Class != workerNodePool.Name {
 		t.Fatalf("expected worker class %q, got %q", workerNodePool.Name, clusterClass.Spec.Workers.MachineDeployments[0].Class)
+	}
+
+	workerBootstrapRef := clusterClass.Spec.Workers.MachineDeployments[0].Template.Bootstrap.Ref
+	if workerBootstrapRef == nil || workerBootstrapRef.Name != "worker-0-abc123" {
+		t.Fatalf("expected worker bootstrap ref name %q, got %#v", "worker-0-abc123", workerBootstrapRef)
 	}
 
 	var kubevirtClusterTemplate providerv1.KubevirtClusterTemplate

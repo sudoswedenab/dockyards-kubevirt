@@ -174,6 +174,11 @@ func (r *ClusterAPIClusterReconciler) reconcileClusterClassTopology(ctx context.
 		clusterClass.Spec.Workers.MachineDeployments = make([]clusterv1.MachineDeploymentClass, 0, len(workerNodePools))
 
 		for _, nodePool := range workerNodePools {
+			talosConfigTemplateName := nodePool.Name
+			if value, ok := nodePool.Annotations[AnnotationTalosConfigTemplateName]; ok && value != "" {
+				talosConfigTemplateName = value
+			}
+
 			clusterClass.Spec.Workers.MachineDeployments = append(clusterClass.Spec.Workers.MachineDeployments, clusterv1.MachineDeploymentClass{
 				Class: nodePool.Name,
 				Template: clusterv1.MachineDeploymentClassTemplate{
@@ -181,7 +186,7 @@ func (r *ClusterAPIClusterReconciler) reconcileClusterClassTopology(ctx context.
 						Ref: &corev1.ObjectReference{
 							APIVersion: "bootstrap.cluster.x-k8s.io/v1alpha3",
 							Kind:       "TalosConfigTemplate",
-							Name:       nodePool.Name,
+							Name:       talosConfigTemplateName,
 						},
 					},
 					Infrastructure: clusterv1.LocalObjectTemplate{

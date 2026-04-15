@@ -1517,7 +1517,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1579,7 +1579,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1656,7 +1656,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1732,7 +1732,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1809,7 +1809,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1885,7 +1885,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1964,7 +1964,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 
 		var actual bootstrapv1.TalosConfigTemplate
-		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateNameForNodePool(&nodePool)}, &actual)
 		if err != nil {
 			t.Fatal(err)
 		}
