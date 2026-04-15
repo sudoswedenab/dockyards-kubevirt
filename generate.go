@@ -15,4 +15,4 @@
 package main
 
 //go:generate go tool controller-gen rbac:roleName=dockyards-kubevirt paths="./..."
-//go:generate go tool addlicense -c "Sudo Sweden AB" -y 2025 .
+//go:generate go tool addlicense -c "Sudo Sweden AB" -y 2026 .
