@@ -113,14 +113,6 @@ func TestClusterAPIClusterReconciler_reconcileClusterClassTopology(t *testing.T)
 		t.Fatalf("expected control plane replicas %d", controlPlaneReplicas)
 	}
 
-	if cluster.Spec.ControlPlaneRef != nil {
-		t.Fatalf("expected control plane ref to be nil in topology mode")
-	}
-
-	if cluster.Spec.InfrastructureRef != nil {
-		t.Fatalf("expected infrastructure ref to be nil in topology mode")
-	}
-
 	if cluster.Spec.Topology.Workers == nil || len(cluster.Spec.Topology.Workers.MachineDeployments) != 1 {
 		t.Fatalf("expected one worker topology machine deployment")
 	}
@@ -263,5 +255,93 @@ func TestClusterAPIClusterReconciler_ReconcileLegacyModeSetsInfrastructureRef(t 
 
 	if kubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type != corev1.ServiceTypeClusterIP {
 		t.Fatalf("expected legacy kubevirt cluster service type %q", corev1.ServiceTypeClusterIP)
+	}
+}
+
+func TestClusterAPIClusterReconciler_ReconcileTopologyModeKeepsControlPlaneRefAndSetsInfrastructureRef(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.AddToScheme(scheme)
+	_ = providerv1.AddToScheme(scheme)
+	_ = dockyardsv1.AddToScheme(scheme)
+
+	namespace := "test"
+	clusterName := "topology"
+
+	cluster := clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusterName,
+			Namespace: namespace,
+		},
+		Spec: clusterv1.ClusterSpec{
+			ControlPlaneRef: &corev1.ObjectReference{
+				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha3",
+				Kind:       "TalosControlPlane",
+				Name:       "existing-cp",
+			},
+		},
+	}
+
+	dockyardsCluster := dockyardsv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusterName,
+			Namespace: namespace,
+		},
+		Spec: dockyardsv1.ClusterSpec{Version: "v1.35.3"},
+	}
+
+	controlPlaneNodePool := dockyardsv1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cp-0",
+			Namespace: namespace,
+			Labels: map[string]string{
+				dockyardsv1.LabelClusterName: clusterName,
+			},
+		},
+		Spec: dockyardsv1.NodePoolSpec{ControlPlane: true, Replicas: ptr.To(int32(3))},
+	}
+
+	workerNodePool := dockyardsv1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "worker-0",
+			Namespace: namespace,
+			Labels: map[string]string{
+				dockyardsv1.LabelClusterName: clusterName,
+			},
+		},
+		Spec: dockyardsv1.NodePoolSpec{Replicas: ptr.To(int32(2))},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&cluster, &dockyardsCluster, &controlPlaneNodePool, &workerNodePool).
+		Build()
+
+	r := &ClusterAPIClusterReconciler{Client: c, UseClusterTopology: true}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&cluster)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var actual clusterv1.Cluster
+	err = c.Get(context.Background(), client.ObjectKeyFromObject(&cluster), &actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if actual.Spec.InfrastructureRef == nil {
+		t.Fatalf("expected infrastructure ref to be set in topology mode")
+	}
+
+	if actual.Spec.InfrastructureRef.Kind != "KubevirtCluster" || actual.Spec.InfrastructureRef.Name != clusterName {
+		t.Fatalf("unexpected infrastructure ref: %#v", actual.Spec.InfrastructureRef)
+	}
+
+	if actual.Spec.ControlPlaneRef == nil || actual.Spec.ControlPlaneRef.Name != "existing-cp" {
+		t.Fatalf("expected existing control plane ref to be preserved, got %#v", actual.Spec.ControlPlaneRef)
+	}
+
+	if actual.Spec.Topology == nil {
+		t.Fatalf("expected topology to be set in topology mode")
 	}
 }

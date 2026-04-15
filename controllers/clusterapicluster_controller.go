@@ -64,6 +64,11 @@ func (r *ClusterAPIClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}()
 
 	if r.UseClusterTopology {
+		result, err = r.reconcileKubevirtCluster(ctx, &cluster)
+		if err != nil {
+			return result, err
+		}
+
 		result, err = r.reconcileClusterClassTopology(ctx, &cluster)
 	} else {
 		result, err = r.reconcileKubevirtCluster(ctx, &cluster)
@@ -226,9 +231,6 @@ func (r *ClusterAPIClusterReconciler) reconcileClusterClassTopology(ctx context.
 			})
 		}
 	}
-
-	cluster.Spec.ControlPlaneRef = nil
-	cluster.Spec.InfrastructureRef = nil
 
 	logger.Info("reconciled cluster topology and class", "clusterClass", clusterClass.Name)
 
