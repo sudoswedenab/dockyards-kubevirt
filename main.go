@@ -63,7 +63,7 @@ func main() {
 	pflag.BoolVar(&useBlockStorage, "use-block-storage", true, "use block storage")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
-	pflag.BoolVar(&useClusterTopology, "use-cluster-topology", true, "use CAPI ClusterClass topology instead of low-level control plane and machine deployment resources")
+	pflag.BoolVar(&useClusterTopology, "use-cluster-topology", false, "use CAPI ClusterClass topology instead of low-level control plane and machine deployment resources")
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
 	pflag.Parse()
 
