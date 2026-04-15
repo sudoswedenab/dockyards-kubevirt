@@ -94,6 +94,16 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - taloscontrolplanetemplates
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
   - ""
   resources:
   - configmaps
