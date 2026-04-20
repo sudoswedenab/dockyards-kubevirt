@@ -27,7 +27,7 @@ func TestNewIPv4Range(t *testing.T) {
 	t.Parallel()
 
 	prefix := netip.MustParsePrefix("10.71.22.160/27")
-	rangeConfig, err := newIPv4Range(prefix)
+	rangeConfig, err := newIPv4Range(prefix, 4)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -36,11 +36,11 @@ func TestNewIPv4Range(t *testing.T) {
 		t.Fatalf("unexpected controlPlaneStart: got %q, want %q", got, want)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.controlPlaneEnd).String(), "10.71.22.170"; got != want {
+	if got, want := uint32ToIPv4(rangeConfig.controlPlaneEnd).String(), "10.71.22.165"; got != want {
 		t.Fatalf("unexpected controlPlaneEnd: got %q, want %q", got, want)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.workerStart).String(), "10.71.22.171"; got != want {
+	if got, want := uint32ToIPv4(rangeConfig.workerStart).String(), "10.71.22.166"; got != want {
 		t.Fatalf("unexpected workerStart: got %q, want %q", got, want)
 	}
 
@@ -52,7 +52,7 @@ func TestNewIPv4Range(t *testing.T) {
 func TestAllocateReuseAndRoleSeparation(t *testing.T) {
 	t.Parallel()
 
-	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"))
+	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"), 4)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -73,7 +73,7 @@ func TestAllocateReuseAndRoleSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got, want := worker1.String(), "10.71.22.171"; got != want {
+	if got, want := worker1.String(), "10.71.22.166"; got != want {
 		t.Fatalf("unexpected first worker ip: got %q, want %q", got, want)
 	}
 
@@ -107,14 +107,16 @@ func TestAllocateReuseAndRoleSeparation(t *testing.T) {
 func TestControlPlaneReserveExhaustion(t *testing.T) {
 	t.Parallel()
 
-	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"))
+	const controlPlaneReserved = 4
+
+	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"), controlPlaneReserved)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	state := newIPAMState()
 
-	for i := 0; i < reservedControlPlaneIPs; i++ {
+	for i := 0; i < controlPlaneReserved; i++ {
 		ip, allocErr := state.allocate(true, rangeConfig)
 		if allocErr != nil {
 			t.Fatalf("expected allocation to succeed on slot %d: %v", i, allocErr)
@@ -126,6 +128,23 @@ func TestControlPlaneReserveExhaustion(t *testing.T) {
 	_, err = state.allocate(true, rangeConfig)
 	if !errors.Is(err, errNoControlPlaneIPsAvailable) {
 		t.Fatalf("expected errNoControlPlaneIPsAvailable, got %v", err)
+	}
+}
+
+func TestNewIPv4RangeHonorsDynamicControlPlaneReserve(t *testing.T) {
+	t.Parallel()
+
+	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"), 2)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if got, want := uint32ToIPv4(rangeConfig.controlPlaneEnd).String(), "10.71.22.163"; got != want {
+		t.Fatalf("unexpected controlPlaneEnd for reserve=2: got %q, want %q", got, want)
+	}
+
+	if got, want := uint32ToIPv4(rangeConfig.workerStart).String(), "10.71.22.164"; got != want {
+		t.Fatalf("unexpected workerStart for reserve=2: got %q, want %q", got, want)
 	}
 }
 
