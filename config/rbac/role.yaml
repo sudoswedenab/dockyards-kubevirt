@@ -19,6 +19,27 @@ metadata:
   name: dockyards-kubevirt
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - bootstrap.cluster.x-k8s.io
+  resources:
+  - talosconfigs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
   - talosconfigtemplates
@@ -72,6 +93,15 @@ rules:
   - get
   - list
   - patch
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machines
+  verbs:
+  - delete
+  - get
+  - list
   - watch
 - apiGroups:
   - controlplane.cluster.x-k8s.io
@@ -240,6 +270,26 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - k8s.cni.cncf.io
+  resources:
+  - ipamclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - k8s.cni.cncf.io
+  resources:
+  - ipamclaims/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - k8s.cni.cncf.io
   resources:
