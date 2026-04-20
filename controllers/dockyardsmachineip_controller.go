@@ -24,6 +24,7 @@ import (
 	"time"
 
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
+	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
@@ -47,7 +48,7 @@ const (
 	ipamStateConfigMapKey    = "state.json"
 
 	defaultExternalNodeInterface = "eth1"
-	reservedControlPlaneIPs      = 9
+	defaultControlPlaneReplicas  = 1
 
 	ipamClaimNameSuffix = "-external-node-ip"
 )
@@ -95,7 +96,12 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, nil
 	}
 
-	clusterRange, err := newIPv4Range(config.Subnet)
+	controlPlaneReplicas, err := r.desiredControlPlaneReplicas(ctx, clusterKey)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	clusterRange, err := newIPv4Range(config.Subnet, controlPlaneReplicas+1)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -258,6 +264,48 @@ func (r *DockyardsMachineIPReconciler) getExternalNodeConfig(ctx context.Context
 	}
 
 	return &externalNodeConfig{Subnet: subnet.Masked(), Interface: interfaceName}, nil
+}
+
+func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.Context, clusterKey types.NamespacedName) (int, error) {
+	cluster := &clusterv1.Cluster{}
+	if err := r.Get(ctx, clusterKey, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return defaultControlPlaneReplicas, nil
+		}
+
+		return 0, err
+	}
+
+	if cluster.Spec.ControlPlaneRef == nil {
+		return defaultControlPlaneReplicas, nil
+	}
+
+	if cluster.Spec.ControlPlaneRef.Kind != "TalosControlPlane" {
+		return defaultControlPlaneReplicas, nil
+	}
+
+	controlPlaneNamespace := cluster.Namespace
+	if cluster.Spec.ControlPlaneRef.Namespace != "" {
+		controlPlaneNamespace = cluster.Spec.ControlPlaneRef.Namespace
+	}
+
+	controlPlane := &controlplanev1.TalosControlPlane{}
+	controlPlaneKey := types.NamespacedName{Name: cluster.Spec.ControlPlaneRef.Name, Namespace: controlPlaneNamespace}
+
+	if err := r.Get(ctx, controlPlaneKey, controlPlane); err != nil {
+		if apierrors.IsNotFound(err) {
+			return defaultControlPlaneReplicas, nil
+		}
+
+		return 0, err
+	}
+
+	replicas := int(controlPlane.Spec.GetReplicas())
+	if replicas < 1 {
+		return defaultControlPlaneReplicas, nil
+	}
+
+	return replicas, nil
 }
 
 func (r *DockyardsMachineIPReconciler) ensureIPAMClaim(ctx context.Context, namespace, claimName, networkName, ifName string, ip netip.Addr) error {
@@ -486,6 +534,7 @@ func (r *DockyardsMachineIPReconciler) SetupWithManager(m ctrl.Manager) error {
 
 	_ = bootstrapv1.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
+	_ = controlplanev1.AddToScheme(scheme)
 	_ = dockyardsv1.AddToScheme(scheme)
 
 	return ctrl.NewControllerManagedBy(m).
@@ -663,7 +712,11 @@ type ipv4Range struct {
 	workerEnd         uint32
 }
 
-func newIPv4Range(prefix netip.Prefix) (ipv4Range, error) {
+func newIPv4Range(prefix netip.Prefix, controlPlaneReserved int) (ipv4Range, error) {
+	if controlPlaneReserved < 1 {
+		controlPlaneReserved = 1
+	}
+
 	masked := prefix.Masked()
 	if !masked.Addr().Is4() {
 		return ipv4Range{}, fmt.Errorf("subnet %q is not IPv4", prefix)
@@ -684,7 +737,7 @@ func newIPv4Range(prefix netip.Prefix) (ipv4Range, error) {
 
 	firstUsable := network + 1
 	controlPlaneStart := firstUsable + 1
-	controlPlaneEnd := controlPlaneStart + reservedControlPlaneIPs - 1
+	controlPlaneEnd := controlPlaneStart + uint32(controlPlaneReserved) - 1
 	workerStart := controlPlaneEnd + 1
 	workerEnd := broadcast - 1
 
