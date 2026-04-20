@@ -44,9 +44,10 @@ func (c *Config) IsZero() bool {
 }
 
 type MachineConfig struct {
-	Kubelet KubeletConfig        `yaml:"kubelet,omitempty"`
-	Env     Env                  `yaml:"env,omitempty"`
-	Files   []MachineFile        `yaml:"files,omitempty"`
+	Kubelet    KubeletConfig     `yaml:"kubelet,omitempty"`
+	Env        Env               `yaml:"env,omitempty"`
+	Files      []MachineFile     `yaml:"files,omitempty"`
+	NodeLabels map[string]string `yaml:"nodeLabels,omitempty"`
 }
 
 var _ yaml.IsZeroer = &MachineConfig{}
@@ -59,6 +60,9 @@ func (c *MachineConfig) IsZero() bool {
 		return false
 	}
 	if c.Files != nil {
+		return false
+	}
+	if c.NodeLabels != nil {
 		return false
 	}
 	return true
