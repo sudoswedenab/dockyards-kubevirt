@@ -36,8 +36,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
@@ -116,19 +114,12 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps
   - secrets
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""
