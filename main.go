@@ -149,13 +149,13 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsNodePoolReconciler{
-		Client:                                 mgr.GetClient(),
-		TalosClusterDiscoveryServiceEndpoint:   talosClusterDiscoveryServiceEndpoint,
-		DataVolumeStorageClassName:             &dataVolumeStorageClassName,
-		EnableMultus:                           enableMultus,
-		UseBlockStorage:                        useBlockStorage,
-		ValidNodeIPSubnets:                     validNodeIPSubnets,
-		DockyardsConfig:                        dockyardsConfig,
+		Client:                               mgr.GetClient(),
+		TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
+		DataVolumeStorageClassName:           &dataVolumeStorageClassName,
+		EnableMultus:                         enableMultus,
+		UseBlockStorage:                      useBlockStorage,
+		ValidNodeIPSubnets:                   validNodeIPSubnets,
+		DockyardsConfig:                      dockyardsConfig,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")
@@ -173,11 +173,11 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsClusterReconciler{
-		Client:                 mgr.GetClient(),
-		GatewayParentReference: gatewayParentReference,
+		Client:                   mgr.GetClient(),
+		GatewayParentReference:   gatewayParentReference,
 		DockyardsSystemNamespace: dockyardsSystemNamespace,
-		DockyardsConfig:        dockyardsConfig,
-		EnableWorkloadIngress:  enableWorkloadIngress,
+		DockyardsConfig:          dockyardsConfig,
+		EnableWorkloadIngress:    enableWorkloadIngress,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards cluster reconciler")
@@ -201,6 +201,15 @@ func main() {
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node reconciler")
+	}
+
+	err = (&controllers.DockyardsMachineIPReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr)
+	if err != nil {
+		slogr.Error(err, "error creating dockyards machine IP reconciler")
+
+		os.Exit(1)
 	}
 
 	err = (&controllers.DockyardsReleaseReconciler{
