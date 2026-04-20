@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -43,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
@@ -148,7 +150,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme})
+	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +683,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme})
+	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -697,6 +699,129 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		Client:          mgr.GetClient(),
 		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
 	}
+
+	t.Run("test controlplane node labels", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cluster := clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      owner.Name,
+				Namespace: owner.Namespace,
+			},
+		}
+		err = c.Create(ctx, &cluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// The NodePool type doesn't currently model spec.nodeLabels, so patch it in unstructured.
+		var u unstructured.Unstructured
+		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
+		u.SetKind(dockyardsv1.NodePoolKind)
+		u.SetName(nodePool.Name)
+		u.SetNamespace(nodePool.Namespace)
+		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedStringMap(u.Object, map[string]string{"node-role.kubernetes.io/control-plane": ""}, "spec", "nodeLabels")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.Patch(ctx, &u, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual controlplanev1.TalosControlPlane
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		labelsPatch, err := yaml.Marshal(talospatchv1.Config{
+			Version: talospatchv1.ConfigVersion,
+			Machine: talospatchv1.MachineConfig{
+				NodeLabels: map[string]string{"node-role.kubernetes.io/control-plane": ""},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		configPatch, err := yaml.Marshal(talospatchv1.Config{
+			Version: talospatchv1.ConfigVersion,
+			Cluster: talospatchv1.ClusterConfig{
+				APIServer: talospatchv1.APIServerConfig{
+					CertSANs: []string{owner.Status.APIEndpoint.Host},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := controlplanev1.TalosControlPlane{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: controlplanev1.TalosControlPlaneSpec{
+				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
+					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
+						GenerateType:     "controlplane",
+						TalosVersion:     "v1.12",
+						StrategicPatches: []string{string(labelsPatch), string(configPatch)},
+					},
+				},
+				InfrastructureTemplate: corev1.ObjectReference{
+					APIVersion: providerv1.GroupVersion.String(),
+					Kind:       "KubevirtMachineTemplate",
+					Name:       nodePool.Name,
+					Namespace:  nodePool.Namespace,
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
+		}
+	})
 
 	t.Run("test controlplane network plugin", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
@@ -1469,7 +1594,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme})
+	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1529,6 +1654,91 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 					Spec: bootstrapv1.TalosConfigSpec{
 						GenerateType: "worker",
 						TalosVersion: "v1.12",
+					},
+				},
+			},
+		}
+
+		if !cmp.Equal(actual, expected) {
+			t.Errorf("diff: %s", cmp.Diff(expected, actual))
+			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
+		}
+	})
+
+	t.Run("test config template node labels", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// The NodePool type doesn't currently model spec.nodeLabels, so patch it in unstructured.
+		var u unstructured.Unstructured
+		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
+		u.SetKind(dockyardsv1.NodePoolKind)
+		u.SetName(nodePool.Name)
+		u.SetNamespace(nodePool.Namespace)
+		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedStringMap(u.Object, map[string]string{"node-role.kubernetes.io/worker": ""}, "spec", "nodeLabels")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.Patch(ctx, &u, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual bootstrapv1.TalosConfigTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		labelsPatch, err := yaml.Marshal(talospatchv1.Config{
+			Version: talospatchv1.ConfigVersion,
+			Machine: talospatchv1.MachineConfig{
+				NodeLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := bootstrapv1.TalosConfigTemplate{
+			ObjectMeta: actual.ObjectMeta,
+			Spec: bootstrapv1.TalosConfigTemplateSpec{
+				Template: bootstrapv1.TalosConfigTemplateResource{
+					Spec: bootstrapv1.TalosConfigSpec{
+						GenerateType:     "worker",
+						TalosVersion:     "v1.12",
+						StrategicPatches: []string{string(labelsPatch)},
 					},
 				},
 			},
