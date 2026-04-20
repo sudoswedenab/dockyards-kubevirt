@@ -15,10 +15,12 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/netip"
 	"slices"
 	"time"
@@ -59,7 +61,8 @@ var (
 )
 
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigs,verbs=get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;patch;update;watch
+// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=delete;get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=ipamclaims,verbs=create;delete;get;list;patch;update;watch
@@ -151,8 +154,23 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if talosConfig.Status.DataSecretName == nil {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	bootstrapDataSecret := &corev1.Secret{}
+	bootstrapDataSecretKey := types.NamespacedName{Namespace: machine.Namespace, Name: *talosConfig.Status.DataSecretName}
+	if err := r.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	bootstrapData, ok := bootstrapDataSecret.Data["value"]
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+
 	desiredAddress := fmt.Sprintf("%s/%d", ip, config.Subnet.Bits())
-	updatedPatches, changed, err := upsertLinkConfigPatch(talosConfig.Spec.StrategicPatches, config.Interface, desiredAddress)
+	updatedBootstrapData, changed, err := upsertLinkConfigInBootstrapData(bootstrapData, config.Interface, desiredAddress)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -161,19 +179,19 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, nil
 	}
 
-	if talosConfig.Status.DataSecretName != nil {
+	secretPatch := client.MergeFrom(bootstrapDataSecret.DeepCopy())
+	bootstrapDataSecret.Data["value"] = updatedBootstrapData
+
+	if err := r.Patch(ctx, bootstrapDataSecret, secretPatch); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if machine.Status.NodeRef != nil {
 		if err := r.reconcileLatePatchMachine(ctx, &machine, clusterKey.Name, isControlPlane); err != nil {
 			return ctrl.Result{}, err
 		}
 
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
-	patch := client.MergeFrom(talosConfig.DeepCopy())
-	talosConfig.Spec.StrategicPatches = updatedPatches
-
-	if err := r.Patch(ctx, &talosConfig, patch); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -823,6 +841,86 @@ func upsertLinkConfigPatch(patches []string, interfaceName, addressWithPrefix st
 	updated = append(updated, string(raw))
 
 	return updated, true, nil
+}
+
+func upsertLinkConfigInBootstrapData(data []byte, interfaceName, addressWithPrefix string) ([]byte, bool, error) {
+	documents, err := decodeYAMLDocuments(data)
+	if err != nil {
+		return nil, false, err
+	}
+
+	stringDocs := make([]string, 0, len(documents))
+	for _, doc := range documents {
+		raw, err := yaml.Marshal(doc)
+		if err != nil {
+			return nil, false, err
+		}
+
+		stringDocs = append(stringDocs, string(raw))
+	}
+
+	updatedDocs, changed, err := upsertLinkConfigPatch(stringDocs, interfaceName, addressWithPrefix)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !changed {
+		return data, false, nil
+	}
+
+	updatedData, err := encodeYAMLDocuments(updatedDocs)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return updatedData, true, nil
+}
+
+func decodeYAMLDocuments(data []byte) ([]map[string]any, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	result := []map[string]any{}
+
+	for {
+		document := map[string]any{}
+		err := decoder.Decode(&document)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(document) == 0 {
+			continue
+		}
+
+		result = append(result, document)
+	}
+
+	return result, nil
+}
+
+func encodeYAMLDocuments(documents []string) ([]byte, error) {
+	buffer := bytes.NewBuffer(nil)
+	encoder := yaml.NewEncoder(buffer)
+
+	for _, document := range documents {
+		decoded := map[string]any{}
+		if err := yaml.Unmarshal([]byte(document), &decoded); err != nil {
+			return nil, err
+		}
+
+		if err := encoder.Encode(decoded); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+
+	return buffer.Bytes(), nil
 }
 
 func setLinkConfigAddress(doc map[string]any, interfaceName, addressWithPrefix string) (map[string]any, bool, error) {

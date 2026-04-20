@@ -292,3 +292,58 @@ addresses:
 		t.Fatalf("expected explicit up=false to be preserved")
 	}
 }
+
+func TestUpsertLinkConfigInBootstrapData(t *testing.T) {
+	t.Parallel()
+
+	bootstrapData := []byte(`version: v1alpha1
+machine:
+  kubelet:
+    nodeIP:
+      validSubnets:
+        - 10.71.22.160/27
+---
+apiVersion: v1alpha1
+kind: LinkConfig
+name: eth1
+routes:
+  - destination: 100.110.0.1/32
+    gateway: 10.71.22.161
+addresses:
+  - address: 10.71.22.172/27
+`)
+
+	updated, changed, err := upsertLinkConfigInBootstrapData(bootstrapData, "eth1", "10.71.22.173/27")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !changed {
+		t.Fatalf("expected bootstrap data to change")
+	}
+
+	documents, err := decodeYAMLDocuments(updated)
+	if err != nil {
+		t.Fatalf("failed to decode updated data: %v", err)
+	}
+
+	if len(documents) != 2 {
+		t.Fatalf("expected 2 YAML documents, got %d", len(documents))
+	}
+
+	linkConfig := documents[1]
+	routes, found, err := unstructured.NestedSlice(linkConfig, "routes")
+	if err != nil || !found || len(routes) != 1 {
+		t.Fatalf("expected routes to be preserved")
+	}
+
+	addresses, found, err := unstructured.NestedSlice(linkConfig, "addresses")
+	if err != nil || !found || len(addresses) != 1 {
+		t.Fatalf("expected one managed address")
+	}
+
+	entry := addresses[0].(map[string]any)
+	if entry["address"] != "10.71.22.173/27" {
+		t.Fatalf("unexpected managed address: %v", entry["address"])
+	}
+}
