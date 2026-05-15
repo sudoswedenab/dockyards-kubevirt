@@ -163,7 +163,7 @@ func TestUpsertLinkConfigPatch(t *testing.T) {
 		t.Fatalf("expected 1 patch, got %d", len(result))
 	}
 
-	result, changed, err = upsertLinkConfigPatch(result, "eth1", "10.71.22.171/27")
+	_, changed, err = upsertLinkConfigPatch(result, "eth1", "10.71.22.171/27")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
