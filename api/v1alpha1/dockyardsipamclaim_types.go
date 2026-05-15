@@ -31,6 +31,8 @@ type DockyardsIPAMClaimSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=ipamclaims,scope=Namespaced,categories=dockyards
+// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=".spec.address"
+// +kubebuilder:printcolumn:name="Subnet",type=string,JSONPath=".spec.subnet"
 
 // DockyardsIPAMClaim is the schema for Dockyards IPAM claims.
 type DockyardsIPAMClaim struct {

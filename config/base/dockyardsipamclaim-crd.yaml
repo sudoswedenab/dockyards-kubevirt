@@ -28,6 +28,13 @@ spec:
   - name: v1alpha1
     served: true
     storage: true
+    additionalPrinterColumns:
+    - name: Address
+      type: string
+      jsonPath: .spec.address
+    - name: Subnet
+      type: string
+      jsonPath: .spec.subnet
     schema:
       openAPIV3Schema:
         type: object
