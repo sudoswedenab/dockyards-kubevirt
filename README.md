@@ -118,6 +118,29 @@ Notes:
 - This affects root and additional VM disks created from NodePool machine templates.
 - Talos installer cache `DataVolume`s created by `DockyardsReleaseReconciler` still use the global setting.
 
+#### Per-nodepool taints
+
+To apply Kubernetes node taints per NodePool, set `spec.nodeTaints` on the `dockyards.io/v1alpha3 NodePool`.
+
+```yaml
+apiVersion: dockyards.io/v1alpha3
+kind: NodePool
+metadata:
+  name: workers
+  namespace: customer-a
+spec:
+  nodeTaints:
+    node-role.kubernetes.io/worker: "hz:NoSchedule"
+    node.kubernetes.io/unreachable: ":NoExecute"
+```
+
+Notes:
+- Values must be formatted as `<value>:<effect>`.
+- `effect` must be one of `NoSchedule`, `PreferNoSchedule`, or `NoExecute`.
+- Empty taint values are allowed by using `:<effect>`.
+- The legacy object format (`value`/`effect`) is not supported.
+- Invalid taints return a reconciliation error.
+
 ### Workload ingress and Gateway API integration
 `DockyardsWorkloadReconciler` grants the shared gateway the HTTP/TLS routes and core/v1 services that front a workload cluster service. It uses `clustercache.ClusterCache` to watch the remote services that the workload cluster creates and patches their LoadBalancer IPs so that the management cluster service status always advertises the gateway address. Once the gateway has an address the reconciler builds HTTPRoute/TLSRoute objects that advertise every customer DNS zone recorded on the owning Dockyards cluster, keeping the gateway in sync with the workload for both HTTP and TLS traffic.
 
