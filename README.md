@@ -121,6 +121,30 @@ Notes:
 ### Workload ingress and Gateway API integration
 `DockyardsWorkloadReconciler` grants the shared gateway the HTTP/TLS routes and core/v1 services that front a workload cluster service. It uses `clustercache.ClusterCache` to watch the remote services that the workload cluster creates and patches their LoadBalancer IPs so that the management cluster service status always advertises the gateway address. Once the gateway has an address the reconciler builds HTTPRoute/TLSRoute objects that advertise every customer DNS zone recorded on the owning Dockyards cluster, keeping the gateway in sync with the workload for both HTTP and TLS traffic.
 
+#### Per-cluster workload gateway parentRef
+
+By default, workload `HTTPRoute`/`TLSRoute` resources use the global `--gateway-name` and `--gateway-namespace` values.
+
+To override this per Dockyards cluster, set `spec.advanced.gateway.parentRef` on the owning `dockyards.io/v1alpha3 Cluster`:
+
+```yaml
+apiVersion: dockyards.io/v1alpha3
+kind: Cluster
+metadata:
+  name: example
+  namespace: customer-a
+spec:
+  advanced:
+    gateway:
+      parentRef:
+        name: tenant-gateway
+        namespace: tenant-gateway-system
+```
+
+Notes:
+- Both `name` and `namespace` must be set; if either is missing/empty the controller falls back to the global gateway flags.
+- This override applies to workload route parent refs and gateway lookup in `DockyardsWorkloadReconciler`.
+
 `DockyardsClusterReconciler` also ensures the workload cluster has a default ingress controller by creating a per-cluster Dockyards `Workload` named `<cluster>-ingress-nginx` using the `ingress-nginx` `WorkloadTemplate` in the configured public namespace.
 
 - Set `Cluster.spec.noDefaultIngressProvider: true` to skip creating/patching that default `ingress-nginx` workload.
@@ -165,6 +189,8 @@ The controller reads selected keys from the Dockyards ConfigMap (configured via 
 3. Ensure the Talos release data sources and `NodePool` specs match the storage classes and networks you expose to KubeVirt so that machine templates and Talos configs can be generated automatically.
 
 Note: if a specific Dockyards cluster should use a different root disk storage class than the global `--data-volume-storage-class-name`, set `spec.advanced.kubevirt.dataVolumeStorageClassName` on that cluster.
+
+Note: if a specific Dockyards cluster should bind workload `HTTPRoute`/`TLSRoute` to a different Gateway than the global `--gateway-name`/`--gateway-namespace`, set `spec.advanced.gateway.parentRef.name` and `spec.advanced.gateway.parentRef.namespace`.
 
 ## Troubleshooting
 
