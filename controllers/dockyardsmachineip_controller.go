@@ -17,7 +17,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,14 +27,13 @@ import (
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	dockyardskubevirtv1 "github.com/sudoswedenab/dockyards-kubevirt/api/v1alpha1"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,12 +41,6 @@ import (
 )
 
 const (
-	ipamClaimAPIVersion = "k8s.cni.cncf.io/v1alpha1"
-	ipamClaimKind       = "IPAMClaim"
-
-	ipamStateConfigMapSuffix = "-external-node-ipam-state"
-	ipamStateConfigMapKey    = "state.json"
-
 	defaultExternalNodeInterface = "eth1"
 	defaultControlPlaneReplicas  = 1
 
@@ -60,13 +52,11 @@ var (
 	errNoControlPlaneIPsAvailable = errors.New("no control plane IPs available")
 )
 
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;patch;update;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=delete;get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=ipamclaims,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=ipamclaims/status,verbs=get;patch;update
+// +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=dockyardsipamclaims,verbs=create;get;list;patch;update;watch
 
 type DockyardsMachineIPReconciler struct {
 	client.Client
@@ -109,37 +99,24 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	machineKey := machine.Name
 	isControlPlane := machineIsControlPlane(&machine)
-	stateName := clusterKey.Name + ipamStateConfigMapSuffix
-
-	if err := r.garbageCollectLeases(ctx, clusterKey.Namespace, clusterKey.Name, stateName, clusterRange); err != nil {
-		return ctrl.Result{}, err
-	}
 
 	if !machine.DeletionTimestamp.IsZero() {
-		if err := r.releaseMachineIP(ctx, clusterKey.Namespace, stateName, machineKey, clusterRange); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if err := r.deleteIPAMClaim(ctx, machine.Namespace, machineIPAMClaimName(machine.Name)); err != nil {
-			return ctrl.Result{}, err
-		}
-
 		return ctrl.Result{}, nil
 	}
 
-	ip, err := r.allocateMachineIP(ctx, clusterKey.Namespace, stateName, machineKey, isControlPlane, clusterRange)
+	claim, err := r.ensureDockyardsIPAMClaim(ctx, &machine, clusterKey.Name, config.Interface, config.Subnet, isControlPlane)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	ip, err := r.ensureClaimAddress(ctx, claim, clusterRange)
 	if err != nil {
 		if errors.Is(err, errNoControlPlaneIPsAvailable) || errors.Is(err, errNoWorkerIPsAvailable) {
 			logger.Info("unable to allocate IP", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 
-		return ctrl.Result{}, err
-	}
-
-	if err := r.ensureIPAMClaim(ctx, machine.Namespace, machineIPAMClaimName(machine.Name), clusterKey.Name, config.Interface, ip); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -326,199 +303,178 @@ func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.C
 	return replicas, nil
 }
 
-func (r *DockyardsMachineIPReconciler) ensureIPAMClaim(ctx context.Context, namespace, claimName, networkName, ifName string, ip netip.Addr) error {
-	claim := &unstructured.Unstructured{}
-	claim.SetGroupVersionKind(schema.GroupVersionKind{Group: "k8s.cni.cncf.io", Version: "v1alpha1", Kind: ipamClaimKind})
-
-	key := types.NamespacedName{Namespace: namespace, Name: claimName}
-	err := r.Get(ctx, key, claim)
+func (r *DockyardsMachineIPReconciler) ensureDockyardsIPAMClaim(
+	ctx context.Context,
+	machine *clusterv1.Machine,
+	clusterName,
+	ifName string,
+	subnet netip.Prefix,
+	controlPlane bool,
+) (*dockyardskubevirtv1.DockyardsIPAMClaim, error) {
+	claimKey := types.NamespacedName{Namespace: machine.Namespace, Name: machineIPAMClaimName(machine.Name)}
+	claim := &dockyardskubevirtv1.DockyardsIPAMClaim{}
+	err := r.Get(ctx, claimKey, claim)
 	if apierrors.IsNotFound(err) {
-		claim.SetNamespace(namespace)
-		claim.SetName(claimName)
-		claim.Object["spec"] = map[string]any{
-			"network":   networkName,
-			"interface": ifName,
+		claim = &dockyardskubevirtv1.DockyardsIPAMClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: machine.Namespace,
+				Name:      machineIPAMClaimName(machine.Name),
+				OwnerReferences: []metav1.OwnerReference{
+					machineOwnerReference(machine),
+				},
+			},
+			Spec: dockyardskubevirtv1.DockyardsIPAMClaimSpec{
+				ClusterName:  clusterName,
+				MachineName:  machine.Name,
+				Interface:    ifName,
+				Subnet:       subnet.String(),
+				ControlPlane: controlPlane,
+			},
 		}
 
 		if err := r.Create(ctx, claim); err != nil {
-			return err
+			return nil, err
 		}
-	} else if err != nil {
-		return err
+
+		return claim, nil
 	}
 
-	statusIPs, found, err := unstructured.NestedStringSlice(claim.Object, "status", "ips")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if found && len(statusIPs) == 1 && statusIPs[0] == ip.String() {
-		return nil
+	patch := client.MergeFrom(claim.DeepCopy())
+	changed := false
+
+	if claim.Spec.ClusterName != clusterName {
+		claim.Spec.ClusterName = clusterName
+		changed = true
 	}
 
-	statusPatch := claim.DeepCopy()
-	if err := unstructured.SetNestedStringSlice(statusPatch.Object, []string{ip.String()}, "status", "ips"); err != nil {
-		return err
+	if claim.Spec.MachineName != machine.Name {
+		claim.Spec.MachineName = machine.Name
+		changed = true
 	}
 
-	return r.Status().Patch(ctx, statusPatch, client.MergeFrom(claim))
+	if claim.Spec.Interface != ifName {
+		claim.Spec.Interface = ifName
+		changed = true
+	}
+
+	if claim.Spec.Subnet != subnet.String() {
+		claim.Spec.Subnet = subnet.String()
+		changed = true
+	}
+
+	if claim.Spec.ControlPlane != controlPlane {
+		claim.Spec.ControlPlane = controlPlane
+		changed = true
+	}
+
+	if !machineOwnerReferenceExists(claim.OwnerReferences, machine.UID) {
+		claim.OwnerReferences = []metav1.OwnerReference{machineOwnerReference(machine)}
+		changed = true
+	}
+
+	if changed {
+		if err := r.Patch(ctx, claim, patch); err != nil {
+			return nil, err
+		}
+	}
+
+	return claim, nil
 }
 
-func (r *DockyardsMachineIPReconciler) deleteIPAMClaim(ctx context.Context, namespace, claimName string) error {
-	claim := &unstructured.Unstructured{}
-	claim.SetGroupVersionKind(schema.GroupVersionKind{Group: "k8s.cni.cncf.io", Version: "v1alpha1", Kind: ipamClaimKind})
+func (r *DockyardsMachineIPReconciler) ensureClaimAddress(ctx context.Context, claim *dockyardskubevirtv1.DockyardsIPAMClaim, subnet ipv4Range) (netip.Addr, error) {
+	if claim.Spec.Address != "" {
+		ip, err := netip.ParseAddr(claim.Spec.Address)
+		if err != nil {
+			return netip.Addr{}, fmt.Errorf("invalid dockyards ipam claim address %q: %w", claim.Spec.Address, err)
+		}
 
-	err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: claimName}, claim)
-	if err != nil {
-		return client.IgnoreNotFound(err)
+		if !ip.Is4() {
+			return netip.Addr{}, fmt.Errorf("invalid non-ipv4 address in dockyards ipam claim: %q", claim.Spec.Address)
+		}
+
+		return ip, nil
 	}
 
-	return client.IgnoreNotFound(r.Delete(ctx, claim))
-}
-
-func (r *DockyardsMachineIPReconciler) allocateMachineIP(ctx context.Context, namespace, stateName, machineKey string, isControlPlane bool, subnet ipv4Range) (netip.Addr, error) {
-	var allocated netip.Addr
-
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		configMap, state, err := r.getOrCreateStateConfigMap(ctx, namespace, stateName)
-		if err != nil {
-			return err
-		}
-
-		if lease, ok := state.Leases[machineKey]; ok {
-			allocated = lease.IP
-			return nil
-		}
-
-		ip, err := state.allocate(isControlPlane, subnet)
-		if err != nil {
-			return err
-		}
-
-		state.Leases[machineKey] = ipLease{IP: ip, ControlPlane: isControlPlane}
-		allocated = ip
-
-		if err := persistStateConfigMap(configMap, state); err != nil {
-			return err
-		}
-
-		return r.Update(ctx, configMap)
-	})
+	ip, err := r.allocateClaimAddress(ctx, claim.Namespace, claim.Name, claim.Spec.ClusterName, claim.Spec.ControlPlane, subnet)
 	if err != nil {
 		return netip.Addr{}, err
 	}
 
-	return allocated, nil
+	patch := client.MergeFrom(claim.DeepCopy())
+	claim.Spec.Address = ip.String()
+
+	if err := r.Patch(ctx, claim, patch); err != nil {
+		return netip.Addr{}, err
+	}
+
+	return ip, nil
 }
 
-func (r *DockyardsMachineIPReconciler) garbageCollectLeases(ctx context.Context, namespace, clusterName, stateName string, subnet ipv4Range) error {
-	var machineList clusterv1.MachineList
-
-	err := r.List(
-		ctx,
-		&machineList,
-		client.InNamespace(namespace),
-		client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName},
-	)
+func (r *DockyardsMachineIPReconciler) allocateClaimAddress(
+	ctx context.Context,
+	namespace,
+	exceptClaimName,
+	clusterName string,
+	controlPlane bool,
+	subnet ipv4Range,
+) (netip.Addr, error) {
+	var claimList dockyardskubevirtv1.DockyardsIPAMClaimList
+	err := r.List(ctx, &claimList, client.InNamespace(namespace))
 	if err != nil {
-		return err
+		return netip.Addr{}, err
 	}
 
-	activeMachines := make(map[string]struct{}, len(machineList.Items))
-	for i := range machineList.Items {
-		activeMachines[machineList.Items[i].Name] = struct{}{}
-	}
-
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		configMap, state, err := r.getOrCreateStateConfigMap(ctx, namespace, stateName)
-		if err != nil {
-			return err
+	inUse := map[uint32]struct{}{}
+	for _, claim := range claimList.Items {
+		if claim.Name == exceptClaimName {
+			continue
 		}
 
-		changed := false
-		for machineName, lease := range state.Leases {
-			if _, ok := activeMachines[machineName]; ok {
+		if claim.Spec.ClusterName != clusterName || claim.Spec.Address == "" {
+			continue
+		}
+
+		ip, err := netip.ParseAddr(claim.Spec.Address)
+		if err != nil {
+			return netip.Addr{}, fmt.Errorf("invalid address %q in dockyards ipam claim %s/%s: %w", claim.Spec.Address, claim.Namespace, claim.Name, err)
+		}
+
+		if !ip.Is4() {
+			return netip.Addr{}, fmt.Errorf("non-ipv4 address %q in dockyards ipam claim %s/%s", claim.Spec.Address, claim.Namespace, claim.Name)
+		}
+
+		inUse[ipv4ToUint32(ip)] = struct{}{}
+	}
+
+	return nextAvailableIP(controlPlane, inUse, subnet)
+}
+
+func nextAvailableIP(controlPlane bool, inUse map[uint32]struct{}, subnet ipv4Range) (netip.Addr, error) {
+	if controlPlane {
+		for v := subnet.controlPlaneStart; v <= subnet.controlPlaneEnd; v++ {
+			if _, exists := inUse[v]; exists {
 				continue
 			}
 
-			delete(state.Leases, machineName)
-			state.release(lease, subnet)
-			changed = true
+			return uint32ToIPv4(v), nil
 		}
 
-		if !changed {
-			return nil
-		}
-
-		if err := persistStateConfigMap(configMap, state); err != nil {
-			return err
-		}
-
-		return r.Update(ctx, configMap)
-	})
-}
-
-func (r *DockyardsMachineIPReconciler) releaseMachineIP(ctx context.Context, namespace, stateName, machineKey string, subnet ipv4Range) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		configMap, state, err := r.getOrCreateStateConfigMap(ctx, namespace, stateName)
-		if err != nil {
-			return err
-		}
-
-		lease, ok := state.Leases[machineKey]
-		if !ok {
-			return nil
-		}
-
-		delete(state.Leases, machineKey)
-		state.release(lease, subnet)
-
-		if err := persistStateConfigMap(configMap, state); err != nil {
-			return err
-		}
-
-		return r.Update(ctx, configMap)
-	})
-}
-
-func (r *DockyardsMachineIPReconciler) getOrCreateStateConfigMap(ctx context.Context, namespace, name string) (*corev1.ConfigMap, *ipamState, error) {
-	configMap := &corev1.ConfigMap{}
-	key := types.NamespacedName{Namespace: namespace, Name: name}
-
-	err := r.Get(ctx, key, configMap)
-	if apierrors.IsNotFound(err) {
-		configMap = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: namespace,
-				Name:      name,
-			},
-			Data: map[string]string{},
-		}
-
-		state := newIPAMState()
-		if err := persistStateConfigMap(configMap, state); err != nil {
-			return nil, nil, err
-		}
-
-		if err := r.Create(ctx, configMap); err != nil {
-			if !apierrors.IsAlreadyExists(err) {
-				return nil, nil, err
-			}
-
-			if err := r.Get(ctx, key, configMap); err != nil {
-				return nil, nil, err
-			}
-		}
-	} else if err != nil {
-		return nil, nil, err
+		return netip.Addr{}, errNoControlPlaneIPsAvailable
 	}
 
-	state, err := parseIPAMState(configMap)
-	if err != nil {
-		return nil, nil, err
+	for v := subnet.workerStart; v <= subnet.workerEnd; v++ {
+		if _, exists := inUse[v]; exists {
+			continue
+		}
+
+		return uint32ToIPv4(v), nil
 	}
 
-	return configMap, state, nil
+	return netip.Addr{}, errNoWorkerIPsAvailable
 }
 
 func (r *DockyardsMachineIPReconciler) dockyardsClusterToMachines(ctx context.Context, obj client.Object) []ctrl.Request {
@@ -553,6 +509,7 @@ func (r *DockyardsMachineIPReconciler) SetupWithManager(m ctrl.Manager) error {
 	_ = bootstrapv1.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
 	_ = controlplanev1.AddToScheme(scheme)
+	_ = dockyardskubevirtv1.AddToScheme(scheme)
 	_ = dockyardsv1.AddToScheme(scheme)
 
 	return ctrl.NewControllerManagedBy(m).
@@ -579,146 +536,28 @@ type externalNodeConfig struct {
 	Interface string
 }
 
-type ipLease struct {
-	IP           netip.Addr `json:"ip"`
-	ControlPlane bool       `json:"controlPlane"`
+func machineOwnerReference(machine *clusterv1.Machine) metav1.OwnerReference {
+	controller := false
+	blockOwnerDeletion := false
+
+	return metav1.OwnerReference{
+		APIVersion:         clusterv1.GroupVersion.String(),
+		Kind:               "Machine",
+		Name:               machine.Name,
+		UID:                machine.UID,
+		Controller:         &controller,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+	}
 }
 
-type ipamState struct {
-	Leases               map[string]ipLease `json:"leases"`
-	ReleasedControlPlane []netip.Addr       `json:"releasedControlPlane"`
-	ReleasedWorker       []netip.Addr       `json:"releasedWorker"`
-}
-
-func newIPAMState() *ipamState {
-	return &ipamState{Leases: map[string]ipLease{}}
-}
-
-func parseIPAMState(configMap *corev1.ConfigMap) (*ipamState, error) {
-	if configMap.Data == nil {
-		return newIPAMState(), nil
-	}
-
-	raw, ok := configMap.Data[ipamStateConfigMapKey]
-	if !ok || raw == "" {
-		return newIPAMState(), nil
-	}
-
-	var state ipamState
-	if err := json.Unmarshal([]byte(raw), &state); err != nil {
-		return nil, err
-	}
-
-	if state.Leases == nil {
-		state.Leases = map[string]ipLease{}
-	}
-
-	return &state, nil
-}
-
-func persistStateConfigMap(configMap *corev1.ConfigMap, state *ipamState) error {
-	raw, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-
-	if configMap.Data == nil {
-		configMap.Data = map[string]string{}
-	}
-
-	configMap.Data[ipamStateConfigMapKey] = string(raw)
-
-	return nil
-}
-
-func (s *ipamState) allocate(controlPlane bool, subnet ipv4Range) (netip.Addr, error) {
-	inUse := make(map[uint32]struct{}, len(s.Leases))
-	for _, lease := range s.Leases {
-		inUse[ipv4ToUint32(lease.IP)] = struct{}{}
-	}
-
-	if controlPlane {
-		addr, queue, ok := popReusableIP(s.ReleasedControlPlane, inUse, subnet.controlPlaneStart, subnet.controlPlaneEnd)
-		s.ReleasedControlPlane = queue
-		if ok {
-			return addr, nil
+func machineOwnerReferenceExists(ownerReferences []metav1.OwnerReference, uid types.UID) bool {
+	for _, ownerReference := range ownerReferences {
+		if ownerReference.UID == uid {
+			return true
 		}
-
-		for v := subnet.controlPlaneStart; v <= subnet.controlPlaneEnd; v++ {
-			if _, exists := inUse[v]; exists {
-				continue
-			}
-
-			return uint32ToIPv4(v), nil
-		}
-
-		return netip.Addr{}, errNoControlPlaneIPsAvailable
 	}
 
-	addr, queue, ok := popReusableIP(s.ReleasedWorker, inUse, subnet.workerStart, subnet.workerEnd)
-	s.ReleasedWorker = queue
-	if ok {
-		return addr, nil
-	}
-
-	for v := subnet.workerStart; v <= subnet.workerEnd; v++ {
-		if _, exists := inUse[v]; exists {
-			continue
-		}
-
-		return uint32ToIPv4(v), nil
-	}
-
-	return netip.Addr{}, errNoWorkerIPsAvailable
-}
-
-func (s *ipamState) release(lease ipLease, subnet ipv4Range) {
-	value := ipv4ToUint32(lease.IP)
-
-	if lease.ControlPlane {
-		if value < subnet.controlPlaneStart || value > subnet.controlPlaneEnd {
-			return
-		}
-
-		if slices.Contains(s.ReleasedControlPlane, lease.IP) {
-			return
-		}
-
-		s.ReleasedControlPlane = append(s.ReleasedControlPlane, lease.IP)
-
-		return
-	}
-
-	if value < subnet.workerStart || value > subnet.workerEnd {
-		return
-	}
-
-	if slices.Contains(s.ReleasedWorker, lease.IP) {
-		return
-	}
-
-	s.ReleasedWorker = append(s.ReleasedWorker, lease.IP)
-}
-
-func popReusableIP(queue []netip.Addr, inUse map[uint32]struct{}, start, end uint32) (netip.Addr, []netip.Addr, bool) {
-	for i, addr := range queue {
-		value := ipv4ToUint32(addr)
-		if value < start || value > end {
-			continue
-		}
-
-		if _, exists := inUse[value]; exists {
-			continue
-		}
-
-		remaining := make([]netip.Addr, 0, len(queue)-1)
-		remaining = append(remaining, queue[:i]...)
-		remaining = append(remaining, queue[i+1:]...)
-
-		return addr, remaining, true
-	}
-
-	return netip.Addr{}, queue, false
+	return false
 }
 
 type ipv4Range struct {

@@ -21,17 +21,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - get
@@ -281,30 +270,21 @@ rules:
 - apiGroups:
   - k8s.cni.cncf.io
   resources:
-  - ipamclaims
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - k8s.cni.cncf.io
-  resources:
-  - ipamclaims/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - k8s.cni.cncf.io
-  resources:
   - network-attachment-definitions
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - kubevirt.dockyards.io
+  resources:
+  - dockyardsipamclaims
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io

@@ -49,7 +49,7 @@ func TestNewIPv4Range(t *testing.T) {
 	}
 }
 
-func TestAllocateReuseAndRoleSeparation(t *testing.T) {
+func TestNextAvailableIPRoleSeparation(t *testing.T) {
 	t.Parallel()
 
 	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"), 4)
@@ -57,9 +57,9 @@ func TestAllocateReuseAndRoleSeparation(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	state := newIPAMState()
+	inUse := map[uint32]struct{}{}
 
-	cp1, err := state.allocate(true, rangeConfig)
+	cp1, err := nextAvailableIP(true, inUse, rangeConfig)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -67,9 +67,9 @@ func TestAllocateReuseAndRoleSeparation(t *testing.T) {
 		t.Fatalf("unexpected first cp ip: got %q, want %q", got, want)
 	}
 
-	state.Leases["cp-1"] = ipLease{IP: cp1, ControlPlane: true}
+	inUse[ipv4ToUint32(cp1)] = struct{}{}
 
-	worker1, err := state.allocate(false, rangeConfig)
+	worker1, err := nextAvailableIP(false, inUse, rangeConfig)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -77,30 +77,50 @@ func TestAllocateReuseAndRoleSeparation(t *testing.T) {
 		t.Fatalf("unexpected first worker ip: got %q, want %q", got, want)
 	}
 
-	state.Leases["worker-1"] = ipLease{IP: worker1, ControlPlane: false}
-
-	delete(state.Leases, "worker-1")
-	state.release(ipLease{IP: worker1, ControlPlane: false}, rangeConfig)
-
-	worker2, err := state.allocate(false, rangeConfig)
+	inUse[ipv4ToUint32(worker1)] = struct{}{}
+	worker2, err := nextAvailableIP(false, inUse, rangeConfig)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got, want := worker2.String(), worker1.String(); got != want {
-		t.Fatalf("expected released worker ip to be reused, got %q want %q", got, want)
+	if got, want := worker2.String(), "10.71.22.167"; got != want {
+		t.Fatalf("expected next free worker ip, got %q want %q", got, want)
 	}
+}
 
-	state.Leases["worker-2"] = ipLease{IP: worker2, ControlPlane: false}
+func TestNextAvailableIPReusesAddressWhenClaimDisappears(t *testing.T) {
+	t.Parallel()
 
-	delete(state.Leases, "cp-1")
-	state.release(ipLease{IP: cp1, ControlPlane: true}, rangeConfig)
-
-	cp2, err := state.allocate(true, rangeConfig)
+	rangeConfig, err := newIPv4Range(netip.MustParsePrefix("10.71.22.160/27"), 4)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got, want := cp2.String(), cp1.String(); got != want {
-		t.Fatalf("expected released cp ip to be reused, got %q want %q", got, want)
+
+	inUse := map[uint32]struct{}{}
+
+	worker1, err := nextAvailableIP(false, inUse, rangeConfig)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	inUse[ipv4ToUint32(worker1)] = struct{}{}
+	worker2, err := nextAvailableIP(false, inUse, rangeConfig)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if got, want := worker2.String(), "10.71.22.167"; got != want {
+		t.Fatalf("unexpected second worker ip: got %q, want %q", got, want)
+	}
+
+	delete(inUse, ipv4ToUint32(worker1))
+
+	reused, err := nextAvailableIP(false, inUse, rangeConfig)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if got, want := reused.String(), worker1.String(); got != want {
+		t.Fatalf("expected disappeared claim ip to be reused, got %q want %q", got, want)
 	}
 }
 
@@ -114,18 +134,18 @@ func TestControlPlaneReserveExhaustion(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	state := newIPAMState()
+	inUse := map[uint32]struct{}{}
 
 	for i := 0; i < controlPlaneReserved; i++ {
-		ip, allocErr := state.allocate(true, rangeConfig)
+		ip, allocErr := nextAvailableIP(true, inUse, rangeConfig)
 		if allocErr != nil {
 			t.Fatalf("expected allocation to succeed on slot %d: %v", i, allocErr)
 		}
 
-		state.Leases["cp-"+ip.String()] = ipLease{IP: ip, ControlPlane: true}
+		inUse[ipv4ToUint32(ip)] = struct{}{}
 	}
 
-	_, err = state.allocate(true, rangeConfig)
+	_, err = nextAvailableIP(true, inUse, rangeConfig)
 	if !errors.Is(err, errNoControlPlaneIPsAvailable) {
 		t.Fatalf("expected errNoControlPlaneIPsAvailable, got %v", err)
 	}
