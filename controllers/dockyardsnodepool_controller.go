@@ -456,6 +456,10 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 
 func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*string, error) {
 	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
+	if apierrors.IsNotFound(err) {
+		return r.DataVolumeStorageClassName, nil
+	}
+
 	if err != nil {
 		return nil, err
 	}
