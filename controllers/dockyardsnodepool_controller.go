@@ -73,6 +73,8 @@ type DockyardsNodePoolReconciler struct {
 	DockyardsConfig                      *dyconfig.ConfigManager
 }
 
+const clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
+
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
 
@@ -156,6 +158,11 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		return ctrl.Result{}, err
 	}
 
+	storageClassName, err := r.resolveDataVolumeStorageClassName(ctx, dockyardsNodePool)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	machineTemplate := providerv1.KubevirtMachineTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dockyardsNodePool.Name,
@@ -184,8 +191,6 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		cpu := dockyardsNodePool.Spec.Resources.Cpu()
 		storage := dockyardsNodePool.Spec.Resources.Storage()
 		memory := dockyardsNodePool.Spec.Resources.Memory()
-
-		storageClassName := r.DataVolumeStorageClassName
 
 		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
 			{
@@ -445,6 +450,45 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 	}
 
 	return patch
+}
+
+func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*string, error) {
+	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
+	if err != nil {
+		return nil, err
+	}
+
+	if ownerCluster == nil {
+		return r.DataVolumeStorageClassName, nil
+	}
+
+	unstructuredDockyardsCluster := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      ownerCluster.Name,
+				"namespace": ownerCluster.Namespace,
+			},
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
+	if err != nil {
+		return nil, err
+	}
+
+	clusterStorageClassName, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", clusterDataVolumeStorageClassNameKey)
+	if err != nil {
+		return nil, err
+	}
+
+	clusterStorageClassName = strings.TrimSpace(clusterStorageClassName)
+	if found && clusterStorageClassName != "" {
+		return ptr.To(clusterStorageClassName), nil
+	}
+
+	return r.DataVolumeStorageClassName, nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {
