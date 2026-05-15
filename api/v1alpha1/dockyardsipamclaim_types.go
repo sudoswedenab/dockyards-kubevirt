@@ -30,7 +30,7 @@ type DockyardsIPAMClaimSpec struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:path=dockyardsipamclaims,scope=Namespaced,categories=dockyards
+// +kubebuilder:resource:path=ipamclaims,scope=Namespaced,categories=dockyards
 
 // DockyardsIPAMClaim is the schema for Dockyards IPAM claims.
 type DockyardsIPAMClaim struct {
