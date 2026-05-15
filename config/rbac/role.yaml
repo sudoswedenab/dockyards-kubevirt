@@ -278,7 +278,7 @@ rules:
 - apiGroups:
   - kubevirt.dockyards.io
   resources:
-  - dockyardsipamclaims
+  - ipamclaims
   verbs:
   - create
   - get

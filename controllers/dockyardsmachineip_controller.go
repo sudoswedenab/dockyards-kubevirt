@@ -56,7 +56,7 @@ var (
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=delete;get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=dockyardsipamclaims,verbs=create;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=ipamclaims,verbs=create;get;list;patch;update;watch
 
 type DockyardsMachineIPReconciler struct {
 	client.Client
