@@ -185,6 +185,70 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	}
 
+	newOwnedNodePool := func(t *testing.T, owner dockyardsv1.Cluster) dockyardsv1.NodePool {
+		t.Helper()
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-owned-",
+				Namespace:    owner.Namespace,
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: dockyardsv1.GroupVersion.String(),
+						Kind:       dockyardsv1.ClusterKind,
+						Name:       owner.Name,
+						UID:        owner.UID,
+					},
+				},
+			},
+			Spec: dockyardsv1.NodePoolSpec{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU:     resource.MustParse("2"),
+					corev1.ResourceMemory:  resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8G"),
+				},
+			},
+		}
+
+		err := c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return nodePool
+	}
+
+	setClusterStorageClassOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", clusterDataVolumeStorageClassNameKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	t.Run("test machine template resources", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -377,6 +441,132 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 				t.Fatalf("expected data volume template %q to have pvc", dvt.Name)
 			}
 			assertNonBlockVolumeMode(t, dvt.Spec.PVC.VolumeMode)
+		}
+	})
+
+	t.Run("test machine template resources with cluster storage class override", func(t *testing.T) {
+		overriddenStorageClassName := "cluster-fast"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterStorageClassOverride(t, owner, overriddenStorageClassName)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Spec.PVC == nil {
+				t.Fatalf("expected data volume template %q to have pvc", dvt.Name)
+			}
+
+			if dvt.Spec.PVC.StorageClassName == nil {
+				t.Fatalf("expected data volume template %q to have storage class", dvt.Name)
+			}
+
+			if *dvt.Spec.PVC.StorageClassName != overriddenStorageClassName {
+				t.Fatalf("expected storage class %q, got %q", overriddenStorageClassName, *dvt.Spec.PVC.StorageClassName)
+			}
+		}
+	})
+
+	t.Run("test machine template resources fallback storage class without override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Spec.PVC == nil {
+				t.Fatalf("expected data volume template %q to have pvc", dvt.Name)
+			}
+
+			if dvt.Spec.PVC.StorageClassName == nil {
+				t.Fatalf("expected data volume template %q to have storage class", dvt.Name)
+			}
+
+			if *dvt.Spec.PVC.StorageClassName != dataVolumeStorageClassName {
+				t.Fatalf("expected storage class %q, got %q", dataVolumeStorageClassName, *dvt.Spec.PVC.StorageClassName)
+			}
+		}
+	})
+
+	t.Run("test machine template resources fallback storage class with empty override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterStorageClassOverride(t, owner, "")
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Spec.PVC == nil {
+				t.Fatalf("expected data volume template %q to have pvc", dvt.Name)
+			}
+
+			if dvt.Spec.PVC.StorageClassName == nil {
+				t.Fatalf("expected data volume template %q to have storage class", dvt.Name)
+			}
+
+			if *dvt.Spec.PVC.StorageClassName != dataVolumeStorageClassName {
+				t.Fatalf("expected storage class %q, got %q", dataVolumeStorageClassName, *dvt.Spec.PVC.StorageClassName)
+			}
 		}
 	})
 

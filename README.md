@@ -96,6 +96,28 @@ The controller stack keeps the KubeVirt and Talos artifacts aligned with the Doc
 - The release reconcilier creates/updates a CDI `DataVolume` and downstream `DataSource` that hold the latest Talos installer payload.
 - The node reconciler reads each `KubevirtMachine` to publish resource totals back into the Dockyards nodes.
 
+#### Per-cluster root disk storage class
+
+By default, root and additional VM disks use the global `--data-volume-storage-class-name` value.
+
+To override this per Dockyards cluster, set `spec.advanced.kubevirt.dataVolumeStorageClassName` on the owning `dockyards.io/v1alpha3 Cluster`:
+
+```yaml
+apiVersion: dockyards.io/v1alpha3
+kind: Cluster
+metadata:
+  name: example
+  namespace: customer-a
+spec:
+  advanced:
+    kubevirt:
+      dataVolumeStorageClassName: fast-ceph-block
+```
+
+Notes:
+- This affects root and additional VM disks created from NodePool machine templates.
+- Talos installer cache `DataVolume`s created by `DockyardsReleaseReconciler` still use the global setting.
+
 ### Workload ingress and Gateway API integration
 `DockyardsWorkloadReconciler` grants the shared gateway the HTTP/TLS routes and core/v1 services that front a workload cluster service. It uses `clustercache.ClusterCache` to watch the remote services that the workload cluster creates and patches their LoadBalancer IPs so that the management cluster service status always advertises the gateway address. Once the gateway has an address the reconciler builds HTTPRoute/TLSRoute objects that advertise every customer DNS zone recorded on the owning Dockyards cluster, keeping the gateway in sync with the workload for both HTTP and TLS traffic.
 
@@ -141,6 +163,8 @@ The controller reads selected keys from the Dockyards ConfigMap (configured via 
 1. Build/push `dockyards-kubevirt` and update the OCI repository referenced by the Dockyards installer (`dockyardsctl` already points to `public.ecr.aws/sudosweden/dockyards-kubevirt`).
 2. Deploy the controller into a cluster where `dockyards-system` hosts the Dockyards CRDs, Gateway, Talos providers, and the shared gateway; configure the CLI flags (`--config-map`, `--gateway-name`, `--gateway-namespace`, `--dockyards-namespace`, etc.) to match your installation.
 3. Ensure the Talos release data sources and `NodePool` specs match the storage classes and networks you expose to KubeVirt so that machine templates and Talos configs can be generated automatically.
+
+Note: if a specific Dockyards cluster should use a different root disk storage class than the global `--data-volume-storage-class-name`, set `spec.advanced.kubevirt.dataVolumeStorageClassName` on that cluster.
 
 ## Troubleshooting
 
