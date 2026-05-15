@@ -73,7 +73,9 @@ type DockyardsNodePoolReconciler struct {
 	DockyardsConfig                      *dyconfig.ConfigManager
 }
 
-const clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
+const (
+	clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
+)
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -535,6 +537,15 @@ func (r *DockyardsNodePoolReconciler) labelConfigPatch(labels map[string]string)
 	}
 }
 
+func (r *DockyardsNodePoolReconciler) taintConfigPatch(taints map[string]string) talospatchv1.Config {
+	return talospatchv1.Config{
+		Version: talospatchv1.ConfigVersion,
+		Machine: talospatchv1.MachineConfig{
+			NodeTaints: taints,
+		},
+	}
+}
+
 func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, strategicPatches *StrategicPatches) error {
 	unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend := unstructured.Unstructured{
 		Object: map[string]any{
@@ -565,6 +576,63 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(ctx conte
 	err = strategicPatches.Add(ptr.To(patch))
 	if err != nil {
 		return fmt.Errorf("could not add node labels strategic patch: %w", err)
+	}
+
+	return nil
+}
+
+func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, strategicPatches *StrategicPatches) error {
+	unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.NodePoolKind,
+			"metadata": map[string]any{
+				"name":      dockyardsNodePool.Name,
+				"namespace": dockyardsNodePool.Namespace,
+			},
+		},
+	}
+
+	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend), &unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend)
+	if err != nil {
+		return fmt.Errorf("could not get unstructured nodepool object: %w", err)
+	}
+
+	value := unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend.Object
+	taints, found, err := unstructured.NestedStringMap(value, "spec", "nodeTaints")
+	if err != nil {
+		return fmt.Errorf("could not read spec.nodeTaints: %w", err)
+	}
+	if !found || len(taints) == 0 {
+		return nil
+	}
+
+	for key, value := range taints {
+		value = strings.TrimSpace(value)
+
+		splitIndex := strings.LastIndex(value, ":")
+		if splitIndex == -1 {
+			return fmt.Errorf("spec.nodeTaints.%s must be formatted as <value>:<effect>", key)
+		}
+
+		effect := strings.TrimSpace(value[splitIndex+1:])
+		if effect == "" {
+			return fmt.Errorf("spec.nodeTaints.%s effect is required", key)
+		}
+
+		switch corev1.TaintEffect(effect) {
+		case corev1.TaintEffectNoSchedule, corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute:
+		default:
+			return fmt.Errorf("spec.nodeTaints.%s.effect %q is invalid", key, effect)
+		}
+
+		taints[key] = value
+	}
+
+	patch := r.taintConfigPatch(taints)
+	err = strategicPatches.Add(ptr.To(patch))
+	if err != nil {
+		return fmt.Errorf("could not add node taints strategic patch: %w", err)
 	}
 
 	return nil
@@ -636,6 +704,13 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
 		return ctrl.Result{}, nil
+	}
+
+	err = r.addNodePoolNodeTaintsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
+	if err != nil {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, err
 	}
 
 	controlPlanePatch := talospatchv1.Config{
@@ -795,6 +870,11 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.C
 	}
 
 	err = r.addNodePoolNodeLabelsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.addNodePoolNodeTaintsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

@@ -48,6 +48,7 @@ type MachineConfig struct {
 	Env        Env               `yaml:"env,omitempty"`
 	Files      []MachineFile     `yaml:"files,omitempty"`
 	NodeLabels map[string]string `yaml:"nodeLabels,omitempty"`
+	NodeTaints map[string]string `yaml:"nodeTaints,omitempty"`
 }
 
 var _ yaml.IsZeroer = &MachineConfig{}
@@ -63,6 +64,9 @@ func (c *MachineConfig) IsZero() bool {
 		return false
 	}
 	if c.NodeLabels != nil {
+		return false
+	}
+	if c.NodeTaints != nil {
 		return false
 	}
 	return true
