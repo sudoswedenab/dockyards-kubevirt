@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -56,11 +55,6 @@ type DockyardsWorkloadReconciler struct {
 	GatewayParentReference gatewayapiv1.ParentReference
 	ClusterCache           clustercache.ClusterCache
 }
-
-const (
-	clusterGatewayParentRefNameKey      = "name"
-	clusterGatewayParentRefNamespaceKey = "namespace"
-)
 
 func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -404,59 +398,7 @@ func (r *DockyardsWorkloadReconciler) serviceToWorkload(ctx context.Context, obj
 }
 
 func (r *DockyardsWorkloadReconciler) resolveGatewayParentReference(ctx context.Context, ownerCluster *dockyardsv1.Cluster) (gatewayapiv1.ParentReference, error) {
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      ownerCluster.Name,
-				"namespace": ownerCluster.Namespace,
-			},
-		},
-	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, err
-	}
-
-	clusterParentRef, found, err := clusterGatewayParentReference(unstructuredDockyardsCluster.Object)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, err
-	}
-
-	if found {
-		return clusterParentRef, nil
-	}
-
-	return r.GatewayParentReference, nil
-}
-
-func clusterGatewayParentReference(cluster map[string]any) (gatewayapiv1.ParentReference, bool, error) {
-	name, found, err := unstructured.NestedString(cluster, "spec", "advanced", "gateway", "parentRef", clusterGatewayParentRefNameKey)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, false, err
-	}
-
-	name = strings.TrimSpace(name)
-	if !found || name == "" {
-		return gatewayapiv1.ParentReference{}, false, nil
-	}
-
-	namespace, found, err := unstructured.NestedString(cluster, "spec", "advanced", "gateway", "parentRef", clusterGatewayParentRefNamespaceKey)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, false, err
-	}
-
-	namespace = strings.TrimSpace(namespace)
-	if !found || namespace == "" {
-		return gatewayapiv1.ParentReference{}, false, nil
-	}
-
-	return gatewayapiv1.ParentReference{
-		Name:      gatewayapiv1.ObjectName(name),
-		Namespace: ptr.To(gatewayapiv1.Namespace(namespace)),
-	}, true, nil
+	return resolveClusterGatewayParentReference(ctx, r.Client, ownerCluster, r.GatewayParentReference)
 }
 
 func (r *DockyardsWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
