@@ -30,13 +30,16 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
@@ -120,6 +123,92 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 			t.Errorf("diff: %s", cmp.Diff(expected, cluster, opts))
 		}
 	})
+}
+
+func TestResolveClusterGatewayParentReference(t *testing.T) {
+	t.Run("falls back to default parent ref", func(t *testing.T) {
+		scheme := runtime.NewScheme()
+		_ = dockyardsv1.AddToScheme(scheme)
+
+		cluster := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      "cluster-b",
+				"namespace": "tenant-b",
+			},
+		}}
+
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+
+		fallback := gatewayapiv1.ParentReference{
+			Name:      gatewayapiv1.ObjectName("default-gw"),
+			Namespace: ptr.To(gatewayapiv1.Namespace("default-system")),
+		}
+
+		resolved, err := resolveClusterGatewayParentReference(context.Background(), c, &dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster-b", Namespace: "tenant-b"},
+		}, fallback)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !cmp.Equal(resolved, fallback) {
+			t.Fatalf("expected fallback parent ref, diff: %s", cmp.Diff(fallback, resolved))
+		}
+	})
+}
+
+func TestDockyardsClusterReconciler_ReconcileTLSRouteUsesResolvedParentRef(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	_ = dockyardsv1.AddToScheme(scheme)
+	_ = gatewayapiv1.Install(scheme)
+	_ = gatewayapiv1alpha2.Install(scheme)
+
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := DockyardsClusterReconciler{
+		Client: c,
+	}
+
+	cluster := dockyardsv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-c",
+			Namespace: "tenant-c",
+			UID:       "cluster-c-uid",
+		},
+		Status: dockyardsv1.ClusterStatus{
+			APIEndpoint: dockyardsv1.ClusterAPIEndpoint{
+				Host: "tenant-c-cluster-c.example.com",
+				Port: 6443,
+			},
+		},
+	}
+
+	parentRef := gatewayapiv1.ParentReference{
+		Name:      gatewayapiv1.ObjectName("shared-gw"),
+		Namespace: ptr.To(gatewayapiv1.Namespace("gateway-system")),
+	}
+
+	_, err := r.reconcileTLSRoute(context.Background(), &cluster, parentRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	actual := gatewayapiv1alpha2.TLSRoute{}
+	err = c.Get(context.Background(), client.ObjectKey{Name: "cluster-c", Namespace: "tenant-c"}, &actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(actual.Spec.CommonRouteSpec.ParentRefs) != 1 {
+		t.Fatalf("expected one parent ref, got %d", len(actual.Spec.CommonRouteSpec.ParentRefs))
+	}
+
+	if !cmp.Equal(actual.Spec.CommonRouteSpec.ParentRefs[0], parentRef) {
+		t.Fatalf("unexpected parent ref diff: %s", cmp.Diff(parentRef, actual.Spec.CommonRouteSpec.ParentRefs[0]))
+	}
 }
 
 func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
@@ -399,9 +488,9 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 
 	t.Run("test workload gateway missing address", func(t *testing.T) {
 		r := DockyardsClusterReconciler{
-			Client:                mgr.GetClient(),
-			DockyardsSystemNamespace:    "dockyards-testing",
-			EnableWorkloadIngress: true,
+			Client:                   mgr.GetClient(),
+			DockyardsSystemNamespace: "dockyards-testing",
+			EnableWorkloadIngress:    true,
 		}
 
 		cluster := dockyardsv1.Cluster{

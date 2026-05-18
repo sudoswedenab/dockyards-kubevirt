@@ -47,10 +47,10 @@ import (
 type DockyardsClusterReconciler struct {
 	client.Client
 
-	GatewayParentReference      gatewayapiv1.ParentReference
-	DockyardsSystemNamespace    string
-	DockyardsConfig             *dyconfig.ConfigManager
-	EnableWorkloadIngress       bool
+	GatewayParentReference   gatewayapiv1.ParentReference
+	DockyardsSystemNamespace string
+	DockyardsConfig          *dyconfig.ConfigManager
+	EnableWorkloadIngress    bool
 }
 
 func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -75,12 +75,17 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}()
 
-	objectKey := client.ObjectKey{
-		Name: string(r.GatewayParentReference.Name),
+	gatewayParentReference, err := resolveClusterGatewayParentReference(ctx, r.Client, &dockyardsCluster, r.GatewayParentReference)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	if r.GatewayParentReference.Namespace != nil {
-		objectKey.Namespace = string(*r.GatewayParentReference.Namespace)
+	objectKey := client.ObjectKey{
+		Name: string(gatewayParentReference.Name),
+	}
+
+	if gatewayParentReference.Namespace != nil {
+		objectKey.Namespace = string(*gatewayParentReference.Namespace)
 	}
 
 	var gateway gatewayapiv1.Gateway
@@ -105,7 +110,7 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return result, err
 	}
 
-	result, err = r.reconcileTLSRoute(ctx, &dockyardsCluster)
+	result, err = r.reconcileTLSRoute(ctx, &dockyardsCluster, gatewayParentReference)
 	if err != nil {
 		return result, err
 	}
@@ -234,7 +239,7 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster, gatewayParentReference gatewayapiv1.ParentReference) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
@@ -266,7 +271,7 @@ func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dock
 
 		tlsRoute.Spec.CommonRouteSpec = gatewayapiv1.CommonRouteSpec{
 			ParentRefs: []gatewayapiv1.ParentReference{
-				r.GatewayParentReference,
+				gatewayParentReference,
 			},
 		}
 
