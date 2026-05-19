@@ -202,12 +202,12 @@ func TestDockyardsClusterReconciler_ReconcileTLSRouteUsesResolvedParentRef(t *te
 		t.Fatal(err)
 	}
 
-	if len(actual.Spec.CommonRouteSpec.ParentRefs) != 1 {
-		t.Fatalf("expected one parent ref, got %d", len(actual.Spec.CommonRouteSpec.ParentRefs))
+	if len(actual.Spec.ParentRefs) != 1 {
+		t.Fatalf("expected one parent ref, got %d", len(actual.Spec.ParentRefs))
 	}
 
-	if !cmp.Equal(actual.Spec.CommonRouteSpec.ParentRefs[0], parentRef) {
-		t.Fatalf("unexpected parent ref diff: %s", cmp.Diff(parentRef, actual.Spec.CommonRouteSpec.ParentRefs[0]))
+	if !cmp.Equal(actual.Spec.ParentRefs[0], parentRef) {
+		t.Fatalf("unexpected parent ref diff: %s", cmp.Diff(parentRef, actual.Spec.ParentRefs[0]))
 	}
 }
 
