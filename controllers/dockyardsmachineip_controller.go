@@ -45,6 +45,10 @@ const (
 	defaultControlPlaneReplicas  = 1
 
 	ipamClaimNameSuffix = "-external-node-ip"
+
+	ipamClaimPhasePending = "Pending"
+	ipamClaimPhaseReady   = "Ready"
+	ipamClaimPhaseFailed  = "Failed"
 )
 
 var (
@@ -57,6 +61,7 @@ var (
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=delete;get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=ipamclaims,verbs=create;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=ipamclaims/status,verbs=get;patch;update
 
 type DockyardsMachineIPReconciler struct {
 	client.Client
@@ -110,14 +115,34 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	if claim.Spec.Address == "" {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "AllocatingAddress", "waiting for address allocation"); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+	}
+
 	ip, err := r.ensureClaimAddress(ctx, claim, clusterRange)
 	if err != nil {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhaseFailed, "AddressAllocationFailed", err.Error()); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+
 		if errors.Is(err, errNoControlPlaneIPsAvailable) || errors.Is(err, errNoWorkerIPsAvailable) {
 			logger.Info("unable to allocate IP", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 
 		return ctrl.Result{}, err
+	}
+
+	if statusErr := r.setClaimStatus(
+		ctx,
+		claim,
+		ipamClaimPhaseReady,
+		"AddressAllocated",
+		fmt.Sprintf("allocated address %s", ip),
+	); statusErr != nil {
+		return ctrl.Result{}, statusErr
 	}
 
 	talosConfigRef := machine.Spec.Bootstrap.ConfigRef
@@ -412,6 +437,30 @@ func (r *DockyardsMachineIPReconciler) ensureClaimAddress(ctx context.Context, c
 	}
 
 	return ip, nil
+}
+
+func (r *DockyardsMachineIPReconciler) setClaimStatus(
+	ctx context.Context,
+	claim *dockyardskubevirtv1.DockyardsIPAMClaim,
+	phase,
+	reason,
+	message string,
+) error {
+	patch := client.MergeFrom(claim.DeepCopy())
+
+	if claim.Status.Phase == phase &&
+		claim.Status.Reason == reason &&
+		claim.Status.Message == message &&
+		claim.Status.ObservedGeneration == claim.Generation {
+		return nil
+	}
+
+	claim.Status.Phase = phase
+	claim.Status.Reason = reason
+	claim.Status.Message = message
+	claim.Status.ObservedGeneration = claim.Generation
+
+	return r.Status().Patch(ctx, claim, patch)
 }
 
 func (r *DockyardsMachineIPReconciler) allocateClaimAddress(

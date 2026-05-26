@@ -35,6 +35,9 @@ spec:
     - name: Subnet
       type: string
       jsonPath: .spec.subnet
+    - name: Status
+      type: string
+      jsonPath: .status.phase
     schema:
       openAPIV3Schema:
         type: object
@@ -60,3 +63,17 @@ spec:
                 type: boolean
               address:
                 type: string
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+              reason:
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                type: integer
+                format: int64
+    subresources:
+      status: {}

@@ -29,17 +29,28 @@ type DockyardsIPAMClaimSpec struct {
 	Address      string `json:"address,omitempty"`
 }
 
+// DockyardsIPAMClaimStatus defines observed state of DockyardsIPAMClaim.
+type DockyardsIPAMClaimStatus struct {
+	Phase              string `json:"phase,omitempty"`
+	Reason             string `json:"reason,omitempty"`
+	Message            string `json:"message,omitempty"`
+	ObservedGeneration int64  `json:"observedGeneration,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=ipamclaims,scope=Namespaced,categories=dockyards
 // +kubebuilder:printcolumn:name="Address",type=string,JSONPath=".spec.address"
 // +kubebuilder:printcolumn:name="Subnet",type=string,JSONPath=".spec.subnet"
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.phase"
+// +kubebuilder:subresource:status
 
 // DockyardsIPAMClaim is the schema for Dockyards IPAM claims.
 type DockyardsIPAMClaim struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec DockyardsIPAMClaimSpec `json:"spec,omitempty"`
+	Spec   DockyardsIPAMClaimSpec   `json:"spec,omitempty"`
+	Status DockyardsIPAMClaimStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -56,6 +67,7 @@ func (in *DockyardsIPAMClaim) DeepCopyInto(out *DockyardsIPAMClaim) {
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	out.Spec = in.Spec
+	out.Status = in.Status
 }
 
 func (in *DockyardsIPAMClaim) DeepCopy() *DockyardsIPAMClaim {
