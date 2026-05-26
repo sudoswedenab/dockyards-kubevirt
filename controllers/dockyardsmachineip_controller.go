@@ -42,7 +42,7 @@ import (
 
 const (
 	defaultExternalNodeInterface = "eth1"
-	defaultControlPlaneReplicas  = 1
+	controlPlaneReserveSurge     = 1
 
 	ipamClaimNameSuffix = "-external-node-ip"
 
@@ -54,6 +54,7 @@ const (
 var (
 	errNoWorkerIPsAvailable       = errors.New("no worker IPs available")
 	errNoControlPlaneIPsAvailable = errors.New("no control plane IPs available")
+	errControlPlaneRefUnavailable = errors.New("control plane reference unavailable")
 )
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;patch;update;watch
@@ -96,10 +97,15 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	controlPlaneReplicas, err := r.desiredControlPlaneReplicas(ctx, clusterKey)
 	if err != nil {
+		if errors.Is(err, errControlPlaneRefUnavailable) {
+			logger.Info("unable to determine control plane replicas", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
+
 		return ctrl.Result{}, err
 	}
 
-	clusterRange, err := newIPv4Range(config.Subnet, controlPlaneReplicas+1)
+	clusterRange, err := newIPv4Range(config.Subnet, controlPlaneReplicas+controlPlaneReserveSurge)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -290,18 +296,24 @@ func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.C
 	cluster := &clusterv1.Cluster{}
 	if err := r.Get(ctx, clusterKey, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
-			return defaultControlPlaneReplicas, nil
+			return 0, fmt.Errorf("%w: cluster %s/%s not found", errControlPlaneRefUnavailable, clusterKey.Namespace, clusterKey.Name)
 		}
 
 		return 0, err
 	}
 
 	if cluster.Spec.ControlPlaneRef == nil {
-		return defaultControlPlaneReplicas, nil
+		return 0, fmt.Errorf("%w: cluster %s/%s has no controlPlaneRef", errControlPlaneRefUnavailable, cluster.Namespace, cluster.Name)
 	}
 
 	if cluster.Spec.ControlPlaneRef.Kind != "TalosControlPlane" {
-		return defaultControlPlaneReplicas, nil
+		return 0, fmt.Errorf(
+			"%w: cluster %s/%s controlPlaneRef kind %q is unsupported",
+			errControlPlaneRefUnavailable,
+			cluster.Namespace,
+			cluster.Name,
+			cluster.Spec.ControlPlaneRef.Kind,
+		)
 	}
 
 	controlPlaneNamespace := cluster.Namespace
@@ -314,7 +326,12 @@ func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.C
 
 	if err := r.Get(ctx, controlPlaneKey, controlPlane); err != nil {
 		if apierrors.IsNotFound(err) {
-			return defaultControlPlaneReplicas, nil
+			return 0, fmt.Errorf(
+				"%w: taloscontrolplane %s/%s not found",
+				errControlPlaneRefUnavailable,
+				controlPlaneKey.Namespace,
+				controlPlaneKey.Name,
+			)
 		}
 
 		return 0, err
@@ -322,7 +339,13 @@ func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.C
 
 	replicas := int(controlPlane.Spec.GetReplicas())
 	if replicas < 1 {
-		return defaultControlPlaneReplicas, nil
+		return 0, fmt.Errorf(
+			"%w: taloscontrolplane %s/%s has invalid replicas=%d",
+			errControlPlaneRefUnavailable,
+			controlPlaneKey.Namespace,
+			controlPlaneKey.Name,
+			replicas,
+		)
 	}
 
 	return replicas, nil
