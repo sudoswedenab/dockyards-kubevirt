@@ -118,6 +118,31 @@ Notes:
 - This affects root and additional VM disks created from NodePool machine templates.
 - Talos installer cache `DataVolume`s created by `DockyardsReleaseReconciler` still use the global setting.
 
+#### Per-cluster Talos installer URL override
+
+By default, NodePools boot from the default Talos installer release `DataSource`.
+
+To force a cluster to use a fully custom upstream Talos installer image URL, set `spec.advanced.kubevirt.talos.installerURL` on the owning `dockyards.io/v1alpha3 Cluster`:
+
+```yaml
+apiVersion: dockyards.io/v1alpha3
+kind: Cluster
+metadata:
+  name: example
+  namespace: customer-a
+spec:
+  advanced:
+    kubevirt:
+      talos:
+        installerURL: https://example.invalid/talos/openstack-amd64.raw.xz
+```
+
+Notes:
+- The node pool reconciler creates a cluster-scoped CDI `DataVolume` from that URL and keeps a matching CDI `DataSource` wired to it.
+- KubeVirt machine templates for that cluster consume the override `DataSource` automatically.
+- Changing the URL creates a new `DataVolume` and repoints the `DataSource` to it.
+- Empty or missing values fall back to the default Talos release `DataSource`.
+
 #### Per-nodepool taints
 
 To apply Kubernetes node taints per NodePool, set `spec.nodeTaints` on the `dockyards.io/v1alpha3 NodePool`.

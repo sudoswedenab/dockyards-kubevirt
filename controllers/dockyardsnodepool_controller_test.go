@@ -249,6 +249,37 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	}
 
+	setClusterTalosInstallerURLOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", clusterTalosInstallerURLKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	t.Run("test machine template resources", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -567,6 +598,143 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			if *dvt.Spec.PVC.StorageClassName != dataVolumeStorageClassName {
 				t.Fatalf("expected storage class %q, got %q", dataVolumeStorageClassName, *dvt.Spec.PVC.StorageClassName)
 			}
+		}
+	})
+
+	t.Run("test machine template uses cluster talos installer URL override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		customTalosInstallerURL := "https://example.invalid/talos/openstack-amd64.raw.xz"
+		setClusterTalosInstallerURLOverride(t, owner, customTalosInstallerURL)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dataSourceName := clusterTalosInstallerDataSourceName(owner.Name)
+		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, customTalosInstallerURL)
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		foundBootDataSourceRef := false
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Name != "boot" {
+				continue
+			}
+
+			if dvt.Spec.SourceRef == nil {
+				t.Fatalf("expected boot data volume template to have sourceRef")
+			}
+
+			if dvt.Spec.SourceRef.Name != dataSourceName {
+				t.Fatalf("expected boot data source %q, got %q", dataSourceName, dvt.Spec.SourceRef.Name)
+			}
+
+			foundBootDataSourceRef = true
+		}
+
+		if !foundBootDataSourceRef {
+			t.Fatalf("expected boot data volume template")
+		}
+
+		var dataSource cdiv1.DataSource
+		err = c.Get(ctx, client.ObjectKey{Name: dataSourceName, Namespace: owner.Namespace}, &dataSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataSource.Spec.Source.PVC == nil {
+			t.Fatalf("expected custom talos installer data source to reference a pvc")
+		}
+
+		if dataSource.Spec.Source.PVC.Name != dataVolumeName {
+			t.Fatalf("expected custom talos installer data source pvc %q, got %q", dataVolumeName, dataSource.Spec.Source.PVC.Name)
+		}
+
+		var dataVolume cdiv1.DataVolume
+		err = c.Get(ctx, client.ObjectKey{Name: dataVolumeName, Namespace: owner.Namespace}, &dataVolume)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataVolume.Spec.Source == nil || dataVolume.Spec.Source.HTTP == nil {
+			t.Fatalf("expected custom talos installer data volume HTTP source")
+		}
+
+		if dataVolume.Spec.Source.HTTP.URL != customTalosInstallerURL {
+			t.Fatalf("expected custom talos installer URL %q, got %q", customTalosInstallerURL, dataVolume.Spec.Source.HTTP.URL)
+		}
+	})
+
+	t.Run("test machine template rotates data volume when cluster talos installer URL changes", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		initialURL := "https://example.invalid/talos/initial.raw.xz"
+		updatedURL := "https://example.invalid/talos/updated.raw.xz"
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		setClusterTalosInstallerURLOverride(t, owner, initialURL)
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterTalosInstallerURLOverride(t, owner, updatedURL)
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		initialDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, initialURL)
+		updatedDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, updatedURL)
+		if initialDataVolumeName == updatedDataVolumeName {
+			t.Fatalf("expected data volume names to differ for different URLs")
+		}
+
+		var dataSource cdiv1.DataSource
+		err = c.Get(ctx, client.ObjectKey{Name: clusterTalosInstallerDataSourceName(owner.Name), Namespace: owner.Namespace}, &dataSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataSource.Spec.Source.PVC == nil {
+			t.Fatalf("expected custom talos installer data source to reference a pvc")
+		}
+
+		if dataSource.Spec.Source.PVC.Name != updatedDataVolumeName {
+			t.Fatalf("expected data source to reference %q, got %q", updatedDataVolumeName, dataSource.Spec.Source.PVC.Name)
+		}
+
+		var updatedDataVolume cdiv1.DataVolume
+		err = c.Get(ctx, client.ObjectKey{Name: updatedDataVolumeName, Namespace: owner.Namespace}, &updatedDataVolume)
+		if err != nil {
+			t.Fatal(err)
 		}
 	})
 
