@@ -79,8 +79,15 @@ type DockyardsNodePoolReconciler struct {
 
 const (
 	clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
-	clusterTalosInstallerURLKey          = "installerURL"
+	clusterTalosInstallerURLKey          = "url"
+	clusterTalosInstallerSizeKey         = "size"
+	defaultTalosInstallerDataVolumeSize  = "8Gi"
 )
+
+type talosInstallerOverride struct {
+	URL  string
+	Size resource.Quantity
+}
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -143,13 +150,13 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	logger := ctrl.LoggerFrom(ctx)
 
 	var dataSource cdiv1.DataSource
-	ownerCluster, customTalosInstallerURL, err := r.resolveTalosInstallerURL(ctx, dockyardsNodePool)
+	ownerCluster, customTalosInstaller, err := r.resolveTalosInstallerOverride(ctx, dockyardsNodePool)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if customTalosInstallerURL != nil && ownerCluster != nil {
-		dataSource, err = r.reconcileCustomTalosInstallerDataSource(ctx, ownerCluster, dockyardsNodePool, *customTalosInstallerURL)
+	if customTalosInstaller != nil && ownerCluster != nil {
+		dataSource, err = r.reconcileCustomTalosInstallerDataSource(ctx, ownerCluster, dockyardsNodePool, *customTalosInstaller)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -398,7 +405,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsNodePoolReconciler) resolveTalosInstallerURL(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*dockyardsv1.Cluster, *string, error) {
+func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*dockyardsv1.Cluster, *talosInstallerOverride, error) {
 	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
 	if apierrors.IsNotFound(err) {
 		return nil, nil, nil
@@ -428,7 +435,7 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerURL(ctx context.Conte
 		return nil, nil, err
 	}
 
-	customTalosInstallerURL, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", clusterTalosInstallerURLKey)
+	customTalosInstallerURL, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -438,21 +445,39 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerURL(ctx context.Conte
 		return ownerCluster, nil, nil
 	}
 
-	return ownerCluster, ptr.To(customTalosInstallerURL), nil
+	talosInstallerSizeRaw, _, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	talosInstallerSizeRaw = strings.TrimSpace(talosInstallerSizeRaw)
+	if talosInstallerSizeRaw == "" {
+		talosInstallerSizeRaw = defaultTalosInstallerDataVolumeSize
+	}
+
+	talosInstallerSize, err := resource.ParseQuantity(talosInstallerSizeRaw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid talos installer size %q: %w", talosInstallerSizeRaw, err)
+	}
+
+	return ownerCluster, &talosInstallerOverride{
+		URL:  customTalosInstallerURL,
+		Size: talosInstallerSize,
+	}, nil
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileCustomTalosInstallerDataSource(
 	ctx context.Context,
 	ownerCluster *dockyardsv1.Cluster,
 	dockyardsNodePool *dockyardsv1.NodePool,
-	talosInstallerURL string,
+	talosInstaller talosInstallerOverride,
 ) (cdiv1.DataSource, error) {
 	storageClassName, err := r.resolveDataVolumeStorageClassName(ctx, dockyardsNodePool)
 	if err != nil {
 		return cdiv1.DataSource{}, err
 	}
 
-	dataVolumeName := clusterTalosInstallerDataVolumeName(ownerCluster.Name, talosInstallerURL)
+	dataVolumeName := clusterTalosInstallerDataVolumeName(ownerCluster.Name, talosInstaller)
 	dataVolume := cdiv1.DataVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dataVolumeName,
@@ -488,7 +513,7 @@ func (r *DockyardsNodePoolReconciler) reconcileCustomTalosInstallerDataSource(
 			},
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: resource.MustParse("8Gi"),
+					corev1.ResourceStorage: talosInstaller.Size,
 				},
 			},
 		}
@@ -503,7 +528,7 @@ func (r *DockyardsNodePoolReconciler) reconcileCustomTalosInstallerDataSource(
 
 		dataVolume.Spec.Source = &cdiv1.DataVolumeSource{
 			HTTP: &cdiv1.DataVolumeSourceHTTP{
-				URL: talosInstallerURL,
+				URL: talosInstaller.URL,
 			},
 		}
 
@@ -545,8 +570,9 @@ func clusterTalosInstallerDataSourceName(clusterName string) string {
 	return cappedKubernetesName(clusterName, "-talos-installer")
 }
 
-func clusterTalosInstallerDataVolumeName(clusterName, talosInstallerURL string) string {
-	checksum := sha256.Sum256([]byte(talosInstallerURL))
+func clusterTalosInstallerDataVolumeName(clusterName string, talosInstaller talosInstallerOverride) string {
+	hashInput := talosInstaller.URL + "|" + talosInstaller.Size.String()
+	checksum := sha256.Sum256([]byte(hashInput))
 	suffix := "-talos-installer-" + hex.EncodeToString(checksum[:6])
 
 	return cappedKubernetesName(clusterName, suffix)
