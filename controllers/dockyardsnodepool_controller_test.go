@@ -269,7 +269,38 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 
 		patch := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", clusterTalosInstallerURLKey)
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	setClusterTalosInstallerSizeOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -624,7 +655,8 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 
 		dataSourceName := clusterTalosInstallerDataSourceName(owner.Name)
-		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, customTalosInstallerURL)
+		talosInstaller := talosInstallerOverride{URL: customTalosInstallerURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)}
+		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstaller)
 
 		var actual providerv1.KubevirtMachineTemplate
 		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
@@ -680,9 +712,22 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		if dataVolume.Spec.Source.HTTP.URL != customTalosInstallerURL {
 			t.Fatalf("expected custom talos installer URL %q, got %q", customTalosInstallerURL, dataVolume.Spec.Source.HTTP.URL)
 		}
+
+		if dataVolume.Spec.Storage == nil {
+			t.Fatalf("expected custom talos installer data volume storage")
+		}
+
+		actualSize, found := dataVolume.Spec.Storage.Resources.Requests[corev1.ResourceStorage]
+		if !found {
+			t.Fatalf("expected custom talos installer data volume storage request")
+		}
+
+		if actualSize.Cmp(talosInstaller.Size) != 0 {
+			t.Fatalf("expected custom talos installer size %q, got %q", talosInstaller.Size.String(), actualSize.String())
+		}
 	})
 
-	t.Run("test machine template rotates data volume when cluster talos installer URL changes", func(t *testing.T) {
+		t.Run("test machine template rotates data volume when cluster talos installer URL changes", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "owner-",
@@ -711,8 +756,8 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		initialDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, initialURL)
-		updatedDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, updatedURL)
+		initialDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstallerOverride{URL: initialURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)})
+		updatedDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstallerOverride{URL: updatedURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)})
 		if initialDataVolumeName == updatedDataVolumeName {
 			t.Fatalf("expected data volume names to differ for different URLs")
 		}
@@ -735,6 +780,53 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		err = c.Get(ctx, client.ObjectKey{Name: updatedDataVolumeName, Namespace: owner.Namespace}, &updatedDataVolume)
 		if err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("test machine template uses custom talos installer size override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		customTalosInstallerURL := "https://example.invalid/talos/openstack-amd64.raw.xz"
+		customTalosInstallerSize := "45Gi"
+
+		setClusterTalosInstallerURLOverride(t, owner, customTalosInstallerURL)
+		setClusterTalosInstallerSizeOverride(t, owner, customTalosInstallerSize)
+
+		nodePool := newOwnedNodePool(t, owner)
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstallerOverride{URL: customTalosInstallerURL, Size: resource.MustParse(customTalosInstallerSize)})
+
+		var dataVolume cdiv1.DataVolume
+		err = c.Get(ctx, client.ObjectKey{Name: dataVolumeName, Namespace: owner.Namespace}, &dataVolume)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataVolume.Spec.Storage == nil {
+			t.Fatalf("expected custom talos installer data volume storage")
+		}
+
+		actualSize, found := dataVolume.Spec.Storage.Resources.Requests[corev1.ResourceStorage]
+		if !found {
+			t.Fatalf("expected custom talos installer data volume storage request")
+		}
+
+		expectedSize := resource.MustParse(customTalosInstallerSize)
+		if actualSize.Cmp(expectedSize) != 0 {
+			t.Fatalf("expected custom talos installer size %q, got %q", expectedSize.String(), actualSize.String())
 		}
 	})
 

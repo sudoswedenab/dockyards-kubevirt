@@ -122,7 +122,9 @@ Notes:
 
 By default, NodePools boot from the default Talos installer release `DataSource`.
 
-To force a cluster to use a fully custom upstream Talos installer image URL, set `spec.advanced.kubevirt.talos.installerURL` on the owning `dockyards.io/v1alpha3 Cluster`:
+To force a cluster to use a fully custom upstream Talos installer image URL, set `spec.advanced.kubevirt.talos.installImage.url` on the owning `dockyards.io/v1alpha3 Cluster`.
+
+You can also set `spec.advanced.kubevirt.talos.installImage.size` to control the CDI installer cache `DataVolume` request size.
 
 ```yaml
 apiVersion: dockyards.io/v1alpha3
@@ -134,11 +136,14 @@ spec:
   advanced:
     kubevirt:
       talos:
-        installerURL: https://example.invalid/talos/openstack-amd64.raw.xz
+        installImage:
+          url: https://example.invalid/talos/openstack-amd64.raw.xz
+          size: 45Gi
 ```
 
 Notes:
 - The node pool reconciler creates a cluster-scoped CDI `DataVolume` from that URL and keeps a matching CDI `DataSource` wired to it.
+- `installImage.size` controls `DataVolume.spec.storage.resources.requests.storage` for that installer cache (defaults to `8Gi` when omitted).
 - KubeVirt machine templates for that cluster consume the override `DataSource` automatically.
 - Changing the URL creates a new `DataVolume` and repoints the `DataSource` to it.
 - Empty or missing values fall back to the default Talos release `DataSource`.
