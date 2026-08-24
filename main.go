@@ -52,6 +52,7 @@ func main() {
 	var enableWorkloadIngress bool
 	var useBlockStorage bool
 	var talosClusterDiscoveryServiceEndpoint string
+	var networkInterfaceMultiqueue bool
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
@@ -63,6 +64,7 @@ func main() {
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
+	pflag.BoolVar(&networkInterfaceMultiqueue, "network-interface-multiqueue-default", true, "enable network interface multiqueue on all vm interfaces")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -156,6 +158,7 @@ func main() {
 		UseBlockStorage:                      useBlockStorage,
 		ValidNodeIPSubnets:                   validNodeIPSubnets,
 		DockyardsConfig:                      dockyardsConfig,
+		NetworkInterfaceMultiQueue:           networkInterfaceMultiqueue,
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards node pool reconciler")

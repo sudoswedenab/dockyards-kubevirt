@@ -31,6 +31,7 @@ spec:
       containers:
       - args:
         - --dockyards-namespace=$(METADATA_NAMESPACE)
+        - --network-interface-multiqueue-default=true
         env:
         - name: METADATA_NAMESPACE
           valueFrom:

@@ -75,6 +75,7 @@ type DockyardsNodePoolReconciler struct {
 	ValidNodeIPSubnets                   []string
 	UseBlockStorage                      bool
 	DockyardsConfig                      *dyconfig.ConfigManager
+	NetworkInterfaceMultiQueue           bool
 }
 
 const (
@@ -82,6 +83,7 @@ const (
 	clusterTalosInstallerURLKey          = "url"
 	clusterTalosInstallerSizeKey         = "size"
 	defaultTalosInstallerDataVolumeSize  = "8Gi"
+	clusterNetworkInterfaceMultiqueueKey = "networkInterfaceMultiqueue"
 )
 
 type talosInstallerOverride struct {
@@ -185,6 +187,11 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	}
 
 	storageClassName, err := r.resolveDataVolumeStorageClassName(ctx, dockyardsNodePool)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	networkInterfaceMultiqueue, err := r.resolveNetworkInterfaceMultiqueue(ctx, dockyardsNodePool)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -378,8 +385,9 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 							Cores: uint32(cpu.Value()),
 						},
 						Devices: kubevirtv1.Devices{
-							Disks:      disks,
-							Interfaces: interfaces,
+							Disks:                      disks,
+							Interfaces:                 interfaces,
+							NetworkInterfaceMultiQueue: networkInterfaceMultiqueue,
 						},
 						Memory: &kubevirtv1.Memory{
 							Guest: memory,
@@ -705,6 +713,48 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 	}
 
 	return r.DataVolumeStorageClassName, nil
+}
+
+func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*bool, error) {
+	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
+	if apierrors.IsNotFound(err) {
+		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if ownerCluster == nil {
+		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+	}
+
+	unstructuredDockyardsCluster := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      ownerCluster.Name,
+				"namespace": ownerCluster.Namespace,
+			},
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
+	if err != nil {
+		return nil, err
+	}
+
+	enabled, found, err := unstructured.NestedBool(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", clusterNetworkInterfaceMultiqueueKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if !found {
+		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+	}
+
+	return ptr.To(enabled), nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {

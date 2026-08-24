@@ -167,6 +167,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		UseBlockStorage:            true,
 		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+		NetworkInterfaceMultiQueue: true,
 	}
 
 	assertNonBlockVolumeMode := func(t *testing.T, volumeMode *corev1.PersistentVolumeMode) {
@@ -311,6 +312,37 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	}
 
+	setClusterNetworkInterfaceMultiqueueOverride := func(t *testing.T, owner dockyardsv1.Cluster, value bool) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", clusterNetworkInterfaceMultiqueueKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	t.Run("test machine template resources", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -392,6 +424,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: &kubevirtv1.Memory{
 												Guest: ptr.To(resource.MustParse("2Gi")),
@@ -466,6 +499,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
 			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+			NetworkInterfaceMultiQueue: true,
 		}
 
 		nodePool := dockyardsv1.NodePool{
@@ -657,7 +691,6 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		dataSourceName := clusterTalosInstallerDataSourceName(owner.Name)
 		talosInstaller := talosInstallerOverride{URL: customTalosInstallerURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)}
 		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstaller)
-
 		var actual providerv1.KubevirtMachineTemplate
 		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
 		if err != nil {
@@ -727,7 +760,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	})
 
-		t.Run("test machine template rotates data volume when cluster talos installer URL changes", func(t *testing.T) {
+	t.Run("test machine template rotates data volume when cluster talos installer URL changes", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "owner-",
@@ -827,6 +860,115 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		expectedSize := resource.MustParse(customTalosInstallerSize)
 		if actualSize.Cmp(expectedSize) != 0 {
 			t.Fatalf("expected custom talos installer size %q, got %q", expectedSize.String(), actualSize.String())
+		}
+	})
+
+	t.Run("test machine template resources with cluster network interface multiqueue override true", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterNetworkInterfaceMultiqueueOverride(t, owner, true)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.NetworkInterfaceMultiQueue
+		if got == nil {
+			t.Fatal("expected networkInterfaceMultiqueue to be set")
+		}
+
+		if !*got {
+			t.Fatal("expected networkInterfaceMultiqueue=true")
+		}
+	})
+
+	t.Run("test machine template resources with cluster network interface multiqueue override false", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterNetworkInterfaceMultiqueueOverride(t, owner, false)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.NetworkInterfaceMultiQueue
+		if got == nil {
+			t.Fatal("expected networkInterfaceMultiqueue to be set")
+		}
+
+		if *got {
+			t.Fatal("expected networkInterfaceMultiqueue=false")
+		}
+	})
+
+	t.Run("test machine template resources fallback network interface multiqueue without override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.NetworkInterfaceMultiQueue
+		if got == nil {
+			t.Fatal("expected networkInterfaceMultiqueue to be set from default")
+		}
+
+		if !*got {
+			t.Fatal("expected networkInterfaceMultiqueue=true from default")
 		}
 	})
 
@@ -995,6 +1137,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: &kubevirtv1.Memory{
 												Guest: ptr.To(resource.MustParse("2Gi")),
@@ -1035,6 +1178,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
 			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+			NetworkInterfaceMultiQueue: true,
 		}
 
 		nodePool := dockyardsv1.NodePool{
@@ -3176,8 +3320,9 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 	}
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client:       c,
-		EnableMultus: true,
+		Client:                     c,
+		EnableMultus:               true,
+		NetworkInterfaceMultiQueue: true,
 	}
 
 	t.Run("test machine template namespace without network attachment definitions", func(t *testing.T) {
@@ -3240,6 +3385,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
 										},
@@ -3346,6 +3492,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
 										},
@@ -3457,6 +3604,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
 										},
