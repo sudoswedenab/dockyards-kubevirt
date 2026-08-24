@@ -148,6 +148,28 @@ Notes:
 - Changing the URL creates a new `DataVolume` and repoints the `DataSource` to it.
 - Empty or missing values fall back to the default Talos release `DataSource`.
 
+#### Per-cluster network interface multiqueue
+
+To enable KubeVirt virtio network multiqueue per Dockyards cluster, set `spec.advanced.kubevirt.networkInterfaceMultiqueue` on the owning `dockyards.io/v1alpha3 Cluster`:
+
+```yaml
+apiVersion: dockyards.io/v1alpha3
+kind: Cluster
+metadata:
+  name: example
+  namespace: customer-a
+spec:
+  advanced:
+    kubevirt:
+      networkInterfaceMultiqueue: true
+```
+
+Notes:
+- This sets `Domain.Devices.NetworkInterfaceMultiQueue` on generated `KubevirtMachineTemplate` VM specs.
+- If not set, the controller uses `--network-interface-multiqueue-default` (defaults to `true`).
+- The cluster override can force either `true` or `false` regardless of the global default.
+- Existing `KubevirtMachineTemplate` objects are not rewritten; this applies when templates are created.
+
 #### Per-nodepool taints
 
 To apply Kubernetes node taints per NodePool, set `spec.nodeTaints` on the `dockyards.io/v1alpha3 NodePool`.
