@@ -16,6 +16,8 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -32,6 +34,7 @@ import (
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,7 +51,8 @@ import (
 )
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
-// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datasources,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datasources,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datavolumes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanes,verbs=create;get;list;patch;watch
@@ -71,11 +75,21 @@ type DockyardsNodePoolReconciler struct {
 	ValidNodeIPSubnets                   []string
 	UseBlockStorage                      bool
 	DockyardsConfig                      *dyconfig.ConfigManager
+	NetworkInterfaceMultiQueue           bool
 }
 
 const (
 	clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
+	clusterTalosInstallerURLKey          = "url"
+	clusterTalosInstallerSizeKey         = "size"
+	defaultTalosInstallerDataVolumeSize  = "8Gi"
+	clusterNetworkInterfaceMultiqueueKey = "networkInterfaceMultiqueue"
 )
+
+type talosInstallerOverride struct {
+	URL  string
+	Size resource.Quantity
+}
 
 func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -137,30 +151,47 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
-	if err != nil {
-		return ctrl.Result{}, nil
-	}
-
-	if release == nil {
-		logger.Info("ignoring machine template without default release")
-
-		return ctrl.Result{}, nil
-	}
-
 	var dataSource cdiv1.DataSource
-	err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
-	if apierrors.IsNotFound(err) {
-		conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
-
-		return ctrl.Result{}, nil
-	}
-
+	ownerCluster, customTalosInstaller, err := r.resolveTalosInstallerOverride(ctx, dockyardsNodePool)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
+	if customTalosInstaller != nil && ownerCluster != nil {
+		dataSource, err = r.reconcileCustomTalosInstallerDataSource(ctx, ownerCluster, dockyardsNodePool, *customTalosInstaller)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
+		if err != nil {
+			return ctrl.Result{}, nil
+		}
+
+		if release == nil {
+			logger.Info("ignoring machine template without default release")
+
+			return ctrl.Result{}, nil
+		}
+
+		err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
+		if apierrors.IsNotFound(err) {
+			conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
+
+			return ctrl.Result{}, nil
+		}
+
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	storageClassName, err := r.resolveDataVolumeStorageClassName(ctx, dockyardsNodePool)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	networkInterfaceMultiqueue, err := r.resolveNetworkInterfaceMultiqueue(ctx, dockyardsNodePool)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -354,8 +385,9 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 							Cores: uint32(cpu.Value()),
 						},
 						Devices: kubevirtv1.Devices{
-							Disks:      disks,
-							Interfaces: interfaces,
+							Disks:                      disks,
+							Interfaces:                 interfaces,
+							NetworkInterfaceMultiQueue: networkInterfaceMultiqueue,
 						},
 						Memory: &kubevirtv1.Memory{
 							Guest: memory,
@@ -379,6 +411,192 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	logger.Info("reconciled machine template", "result", operationResult)
 
 	return ctrl.Result{}, nil
+}
+
+func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*dockyardsv1.Cluster, *talosInstallerOverride, error) {
+	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
+	if apierrors.IsNotFound(err) {
+		return nil, nil, nil
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if ownerCluster == nil {
+		return nil, nil, nil
+	}
+
+	unstructuredDockyardsCluster := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      ownerCluster.Name,
+				"namespace": ownerCluster.Namespace,
+			},
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	customTalosInstallerURL, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	customTalosInstallerURL = strings.TrimSpace(customTalosInstallerURL)
+	if !found || customTalosInstallerURL == "" {
+		return ownerCluster, nil, nil
+	}
+
+	talosInstallerSizeRaw, _, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	talosInstallerSizeRaw = strings.TrimSpace(talosInstallerSizeRaw)
+	if talosInstallerSizeRaw == "" {
+		talosInstallerSizeRaw = defaultTalosInstallerDataVolumeSize
+	}
+
+	talosInstallerSize, err := resource.ParseQuantity(talosInstallerSizeRaw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid talos installer size %q: %w", talosInstallerSizeRaw, err)
+	}
+
+	return ownerCluster, &talosInstallerOverride{
+		URL:  customTalosInstallerURL,
+		Size: talosInstallerSize,
+	}, nil
+}
+
+func (r *DockyardsNodePoolReconciler) reconcileCustomTalosInstallerDataSource(
+	ctx context.Context,
+	ownerCluster *dockyardsv1.Cluster,
+	dockyardsNodePool *dockyardsv1.NodePool,
+	talosInstaller talosInstallerOverride,
+) (cdiv1.DataSource, error) {
+	storageClassName, err := r.resolveDataVolumeStorageClassName(ctx, dockyardsNodePool)
+	if err != nil {
+		return cdiv1.DataSource{}, err
+	}
+
+	dataVolumeName := clusterTalosInstallerDataVolumeName(ownerCluster.Name, talosInstaller)
+	dataVolume := cdiv1.DataVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dataVolumeName,
+			Namespace: ownerCluster.Namespace,
+		},
+	}
+
+	_, err = controllerutil.CreateOrPatch(ctx, r.Client, &dataVolume, func() error {
+		dataVolume.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: dockyardsv1.GroupVersion.String(),
+				Kind:       dockyardsv1.ClusterKind,
+				Name:       ownerCluster.Name,
+				UID:        ownerCluster.UID,
+			},
+		}
+
+		if dataVolume.Annotations == nil {
+			dataVolume.Annotations = make(map[string]string)
+		}
+
+		dataVolume.Annotations["cdi.kubevirt.io/storage.bind.immediate.requested"] = ""
+
+		if dataVolume.Labels == nil {
+			dataVolume.Labels = make(map[string]string)
+		}
+
+		dataVolume.Labels[dockyardsv1.LabelClusterName] = ownerCluster.Name
+
+		dataVolume.Spec.Storage = &cdiv1.StorageSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteMany,
+			},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: talosInstaller.Size,
+				},
+			},
+		}
+
+		if r.UseBlockStorage {
+			dataVolume.Spec.Storage.VolumeMode = ptr.To(corev1.PersistentVolumeBlock)
+		}
+
+		if storageClassName != nil {
+			dataVolume.Spec.Storage.StorageClassName = storageClassName
+		}
+
+		dataVolume.Spec.Source = &cdiv1.DataVolumeSource{
+			HTTP: &cdiv1.DataVolumeSourceHTTP{
+				URL: talosInstaller.URL,
+			},
+		}
+
+		return nil
+	})
+	if err != nil {
+		return cdiv1.DataSource{}, err
+	}
+
+	dataSource := cdiv1.DataSource{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusterTalosInstallerDataSourceName(ownerCluster.Name),
+			Namespace: ownerCluster.Namespace,
+		},
+	}
+
+	_, err = controllerutil.CreateOrPatch(ctx, r.Client, &dataSource, func() error {
+		if dataSource.Labels == nil {
+			dataSource.Labels = make(map[string]string)
+		}
+
+		dataSource.Labels[dockyardsv1.LabelClusterName] = ownerCluster.Name
+
+		dataSource.Spec.Source.PVC = &cdiv1.DataVolumeSourcePVC{
+			Name:      dataVolume.Name,
+			Namespace: dataVolume.Namespace,
+		}
+
+		return nil
+	})
+	if err != nil {
+		return cdiv1.DataSource{}, err
+	}
+
+	return dataSource, nil
+}
+
+func clusterTalosInstallerDataSourceName(clusterName string) string {
+	return cappedKubernetesName(clusterName, "-talos-installer")
+}
+
+func clusterTalosInstallerDataVolumeName(clusterName string, talosInstaller talosInstallerOverride) string {
+	hashInput := talosInstaller.URL + "|" + talosInstaller.Size.String()
+	checksum := sha256.Sum256([]byte(hashInput))
+	suffix := "-talos-installer-" + hex.EncodeToString(checksum[:6])
+
+	return cappedKubernetesName(clusterName, suffix)
+}
+
+func cappedKubernetesName(base, suffix string) string {
+	if len(base)+len(suffix) <= 253 {
+		return base + suffix
+	}
+
+	maxBaseLength := 253 - len(suffix)
+	if maxBaseLength < 0 {
+		maxBaseLength = 0
+	}
+
+	return base[:maxBaseLength] + suffix
 }
 
 func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyardsv1.Cluster) talospatchv1.Config {
@@ -495,6 +713,48 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 	}
 
 	return r.DataVolumeStorageClassName, nil
+}
+
+func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*bool, error) {
+	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
+	if apierrors.IsNotFound(err) {
+		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if ownerCluster == nil {
+		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+	}
+
+	unstructuredDockyardsCluster := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      ownerCluster.Name,
+				"namespace": ownerCluster.Namespace,
+			},
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
+	if err != nil {
+		return nil, err
+	}
+
+	enabled, found, err := unstructured.NestedBool(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", clusterNetworkInterfaceMultiqueueKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if !found {
+		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+	}
+
+	return ptr.To(enabled), nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {

@@ -167,6 +167,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		UseBlockStorage:            true,
 		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+		NetworkInterfaceMultiQueue: true,
 	}
 
 	assertNonBlockVolumeMode := func(t *testing.T, volumeMode *corev1.PersistentVolumeMode) {
@@ -239,6 +240,99 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 		patch := client.MergeFrom(u.DeepCopy())
 		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", clusterDataVolumeStorageClassNameKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	setClusterTalosInstallerURLOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	setClusterTalosInstallerSizeOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Patch(ctx, &u, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	setClusterNetworkInterfaceMultiqueueOverride := func(t *testing.T, owner dockyardsv1.Cluster, value bool) {
+		t.Helper()
+
+		u := unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": dockyardsv1.GroupVersion.String(),
+				"kind":       dockyardsv1.ClusterKind,
+				"metadata": map[string]any{
+					"name":      owner.Name,
+					"namespace": owner.Namespace,
+				},
+			},
+		}
+
+		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(u.DeepCopy())
+		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", clusterNetworkInterfaceMultiqueueKey)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,6 +424,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: &kubevirtv1.Memory{
 												Guest: ptr.To(resource.MustParse("2Gi")),
@@ -404,6 +499,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
 			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+			NetworkInterfaceMultiQueue: true,
 		}
 
 		nodePool := dockyardsv1.NodePool{
@@ -567,6 +663,312 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			if *dvt.Spec.PVC.StorageClassName != dataVolumeStorageClassName {
 				t.Fatalf("expected storage class %q, got %q", dataVolumeStorageClassName, *dvt.Spec.PVC.StorageClassName)
 			}
+		}
+	})
+
+	t.Run("test machine template uses cluster talos installer URL override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		customTalosInstallerURL := "https://example.invalid/talos/openstack-amd64.raw.xz"
+		setClusterTalosInstallerURLOverride(t, owner, customTalosInstallerURL)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dataSourceName := clusterTalosInstallerDataSourceName(owner.Name)
+		talosInstaller := talosInstallerOverride{URL: customTalosInstallerURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)}
+		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstaller)
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		foundBootDataSourceRef := false
+		for _, dvt := range actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates {
+			if dvt.Name != "boot" {
+				continue
+			}
+
+			if dvt.Spec.SourceRef == nil {
+				t.Fatalf("expected boot data volume template to have sourceRef")
+			}
+
+			if dvt.Spec.SourceRef.Name != dataSourceName {
+				t.Fatalf("expected boot data source %q, got %q", dataSourceName, dvt.Spec.SourceRef.Name)
+			}
+
+			foundBootDataSourceRef = true
+		}
+
+		if !foundBootDataSourceRef {
+			t.Fatalf("expected boot data volume template")
+		}
+
+		var dataSource cdiv1.DataSource
+		err = c.Get(ctx, client.ObjectKey{Name: dataSourceName, Namespace: owner.Namespace}, &dataSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataSource.Spec.Source.PVC == nil {
+			t.Fatalf("expected custom talos installer data source to reference a pvc")
+		}
+
+		if dataSource.Spec.Source.PVC.Name != dataVolumeName {
+			t.Fatalf("expected custom talos installer data source pvc %q, got %q", dataVolumeName, dataSource.Spec.Source.PVC.Name)
+		}
+
+		var dataVolume cdiv1.DataVolume
+		err = c.Get(ctx, client.ObjectKey{Name: dataVolumeName, Namespace: owner.Namespace}, &dataVolume)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataVolume.Spec.Source == nil || dataVolume.Spec.Source.HTTP == nil {
+			t.Fatalf("expected custom talos installer data volume HTTP source")
+		}
+
+		if dataVolume.Spec.Source.HTTP.URL != customTalosInstallerURL {
+			t.Fatalf("expected custom talos installer URL %q, got %q", customTalosInstallerURL, dataVolume.Spec.Source.HTTP.URL)
+		}
+
+		if dataVolume.Spec.Storage == nil {
+			t.Fatalf("expected custom talos installer data volume storage")
+		}
+
+		actualSize, found := dataVolume.Spec.Storage.Resources.Requests[corev1.ResourceStorage]
+		if !found {
+			t.Fatalf("expected custom talos installer data volume storage request")
+		}
+
+		if actualSize.Cmp(talosInstaller.Size) != 0 {
+			t.Fatalf("expected custom talos installer size %q, got %q", talosInstaller.Size.String(), actualSize.String())
+		}
+	})
+
+	t.Run("test machine template rotates data volume when cluster talos installer URL changes", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		initialURL := "https://example.invalid/talos/initial.raw.xz"
+		updatedURL := "https://example.invalid/talos/updated.raw.xz"
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		setClusterTalosInstallerURLOverride(t, owner, initialURL)
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterTalosInstallerURLOverride(t, owner, updatedURL)
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		initialDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstallerOverride{URL: initialURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)})
+		updatedDataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstallerOverride{URL: updatedURL, Size: resource.MustParse(defaultTalosInstallerDataVolumeSize)})
+		if initialDataVolumeName == updatedDataVolumeName {
+			t.Fatalf("expected data volume names to differ for different URLs")
+		}
+
+		var dataSource cdiv1.DataSource
+		err = c.Get(ctx, client.ObjectKey{Name: clusterTalosInstallerDataSourceName(owner.Name), Namespace: owner.Namespace}, &dataSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataSource.Spec.Source.PVC == nil {
+			t.Fatalf("expected custom talos installer data source to reference a pvc")
+		}
+
+		if dataSource.Spec.Source.PVC.Name != updatedDataVolumeName {
+			t.Fatalf("expected data source to reference %q, got %q", updatedDataVolumeName, dataSource.Spec.Source.PVC.Name)
+		}
+
+		var updatedDataVolume cdiv1.DataVolume
+		err = c.Get(ctx, client.ObjectKey{Name: updatedDataVolumeName, Namespace: owner.Namespace}, &updatedDataVolume)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("test machine template uses custom talos installer size override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		customTalosInstallerURL := "https://example.invalid/talos/openstack-amd64.raw.xz"
+		customTalosInstallerSize := "45Gi"
+
+		setClusterTalosInstallerURLOverride(t, owner, customTalosInstallerURL)
+		setClusterTalosInstallerSizeOverride(t, owner, customTalosInstallerSize)
+
+		nodePool := newOwnedNodePool(t, owner)
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dataVolumeName := clusterTalosInstallerDataVolumeName(owner.Name, talosInstallerOverride{URL: customTalosInstallerURL, Size: resource.MustParse(customTalosInstallerSize)})
+
+		var dataVolume cdiv1.DataVolume
+		err = c.Get(ctx, client.ObjectKey{Name: dataVolumeName, Namespace: owner.Namespace}, &dataVolume)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if dataVolume.Spec.Storage == nil {
+			t.Fatalf("expected custom talos installer data volume storage")
+		}
+
+		actualSize, found := dataVolume.Spec.Storage.Resources.Requests[corev1.ResourceStorage]
+		if !found {
+			t.Fatalf("expected custom talos installer data volume storage request")
+		}
+
+		expectedSize := resource.MustParse(customTalosInstallerSize)
+		if actualSize.Cmp(expectedSize) != 0 {
+			t.Fatalf("expected custom talos installer size %q, got %q", expectedSize.String(), actualSize.String())
+		}
+	})
+
+	t.Run("test machine template resources with cluster network interface multiqueue override true", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterNetworkInterfaceMultiqueueOverride(t, owner, true)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.NetworkInterfaceMultiQueue
+		if got == nil {
+			t.Fatal("expected networkInterfaceMultiqueue to be set")
+		}
+
+		if !*got {
+			t.Fatal("expected networkInterfaceMultiqueue=true")
+		}
+	})
+
+	t.Run("test machine template resources with cluster network interface multiqueue override false", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterNetworkInterfaceMultiqueueOverride(t, owner, false)
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.NetworkInterfaceMultiQueue
+		if got == nil {
+			t.Fatal("expected networkInterfaceMultiqueue to be set")
+		}
+
+		if *got {
+			t.Fatal("expected networkInterfaceMultiqueue=false")
+		}
+	})
+
+	t.Run("test machine template resources fallback network interface multiqueue without override", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "owner-",
+				Namespace:    namespace.Name,
+			},
+		}
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := newOwnedNodePool(t, owner)
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Devices.NetworkInterfaceMultiQueue
+		if got == nil {
+			t.Fatal("expected networkInterfaceMultiqueue to be set from default")
+		}
+
+		if !*got {
+			t.Fatal("expected networkInterfaceMultiqueue=true from default")
 		}
 	})
 
@@ -735,6 +1137,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: &kubevirtv1.Memory{
 												Guest: ptr.To(resource.MustParse("2Gi")),
@@ -775,6 +1178,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
 			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+			NetworkInterfaceMultiQueue: true,
 		}
 
 		nodePool := dockyardsv1.NodePool{
@@ -2916,8 +3320,9 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 	}
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client:       c,
-		EnableMultus: true,
+		Client:                     c,
+		EnableMultus:               true,
+		NetworkInterfaceMultiQueue: true,
 	}
 
 	t.Run("test machine template namespace without network attachment definitions", func(t *testing.T) {
@@ -2980,6 +3385,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
 										},
@@ -3086,6 +3492,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
 										},
@@ -3197,6 +3604,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 														},
 													},
 												},
+												NetworkInterfaceMultiQueue: ptr.To(true),
 											},
 											Memory: actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Domain.Memory,
 										},
