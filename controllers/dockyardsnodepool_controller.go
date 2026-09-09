@@ -1085,7 +1085,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		patch := client.MergeFrom(cluster.DeepCopy())
 
 		cluster.Spec.ControlPlaneRef = clusterv1.ContractVersionedObjectReference{
-			APIGroup: controlplanev1.GroupVersion.String(),
+			APIGroup: controlplanev1.GroupVersion.Group,
 			Kind:     "TalosControlPlane",
 			Name:     talosControlPlane.Name,
 		}
@@ -1199,14 +1199,14 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 
 		machineDeployment.Spec.Template.Spec.Bootstrap = clusterv1.Bootstrap{
 			ConfigRef: clusterv1.ContractVersionedObjectReference{
-				APIGroup: bootstrapv1.GroupVersion.String(),
+				APIGroup: bootstrapv1.GroupVersion.Group,
 				Kind:     "TalosConfigTemplate",
 				Name:     dockyardsNodePool.Name,
 			},
 		}
 
 		machineDeployment.Spec.Template.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
-			APIGroup: providerv1.GroupVersion.String(),
+			APIGroup: providerv1.GroupVersion.Group,
 			Kind:     "KubevirtMachineTemplate",
 			Name:     dockyardsNodePool.Name,
 		}
