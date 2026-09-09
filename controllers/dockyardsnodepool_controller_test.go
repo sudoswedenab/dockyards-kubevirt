@@ -163,7 +163,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	}()
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client:                     mgr.GetClient(),
+		Client:                     c,
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		UseBlockStorage:            true,
 		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
@@ -193,6 +193,9 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-owned-",
 				Namespace:    owner.Namespace,
+				Labels: map[string]string{
+					dockyardsv1.LabelClusterName: owner.Name,
+				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
 						APIVersion: dockyardsv1.GroupVersion.String(),
@@ -495,7 +498,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 	t.Run("test machine template resources without block storage", func(t *testing.T) {
 		nonBlockReconciler := DockyardsNodePoolReconciler{
-			Client:                     mgr.GetClient(),
+			Client:                     c,
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
 			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
