@@ -1,0 +1,10 @@
+name: commitlint
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sudoswedenab/sudo-actions/commitlint@main
