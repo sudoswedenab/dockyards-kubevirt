@@ -28,4 +28,6 @@ jobs:
       - run: |
           go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.19
           source <(setup-envtest use --print env 1.31.0)
+          test -n "$KUBEBUILDER_ASSETS"
+          test -d "$KUBEBUILDER_ASSETS"
           go test ./... -v
