@@ -44,8 +44,8 @@ import (
 
 func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 	t.Run("test valid listener", func(t *testing.T) {
-		config := dyconfig.NewFakeConfigManager(map[string]string{
-			string(dyconfig.KeyExternalURL): "http://testing.dockyards.dev",
+		config := dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+			dyconfig.KeyExternalURL: "http://testing.dockyards.dev",
 		})
 
 		r := DockyardsClusterReconciler{DockyardsConfig: config}
@@ -86,8 +86,8 @@ func TestDockyardsClusterReconciler_ReconcileAPIEndpoint(t *testing.T) {
 	})
 
 	t.Run("test missing hostname", func(t *testing.T) {
-		config := dyconfig.NewFakeConfigManager(map[string]string{
-			string(dyconfig.KeyExternalURL): "",
+		config := dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+			dyconfig.KeyExternalURL: "",
 		})
 
 		r := DockyardsClusterReconciler{DockyardsConfig: config}
@@ -279,7 +279,7 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 
 	ignoreFields := cmpopts.IgnoreFields(metav1.ObjectMeta{}, "UID", "CreationTimestamp", "ManagedFields", "ResourceVersion", "Generation")
 
-	dockyardsConfig := dyconfig.NewFakeConfigManager(map[string]string{})
+	dockyardsConfig := dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{})
 
 	t.Run("test workload", func(t *testing.T) {
 		r := DockyardsClusterReconciler{

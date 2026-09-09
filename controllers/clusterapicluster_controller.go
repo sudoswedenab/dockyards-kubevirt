@@ -91,12 +91,11 @@ func (r *ClusterAPIClusterReconciler) reconcileKubevirtCluster(ctx context.Conte
 		logger.Info("reconciled kubevirt cluster", "result", operationResult)
 	}
 
-	if cluster.Spec.InfrastructureRef == nil {
-		cluster.Spec.InfrastructureRef = &corev1.ObjectReference{
-			APIVersion: providerv1.GroupVersion.String(),
-			Kind:       "KubevirtCluster",
-			Name:       kubevirtCluster.Name,
-			Namespace:  kubevirtCluster.Namespace,
+	if !cluster.Spec.InfrastructureRef.IsDefined() {
+		cluster.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
+			APIGroup: providerv1.GroupVersion.Group,
+			Kind:     "KubevirtCluster",
+			Name:     kubevirtCluster.Name,
 		}
 	}
 

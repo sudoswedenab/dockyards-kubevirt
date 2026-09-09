@@ -84,7 +84,7 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	if conditions.IsFalse(&cluster, clusterv1.ControlPlaneInitializedCondition) {
+	if conditions.IsFalse(&cluster, clusterv1.ClusterControlPlaneInitializedCondition) {
 		logger.Info("ignoring cluster services until control plane is initialized")
 
 		return ctrl.Result{}, nil
@@ -95,13 +95,13 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	if ownerCluster == nil {
+	if ownerCluster.Name == "" {
 		logger.Info("ignoring dockyards workload without dockyards cluster")
 
 		return ctrl.Result{}, nil
 	}
 
-	gatewayParentRef, err := r.resolveGatewayParentReference(ctx, ownerCluster)
+	gatewayParentRef, err := r.resolveGatewayParentReference(ctx, &ownerCluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
