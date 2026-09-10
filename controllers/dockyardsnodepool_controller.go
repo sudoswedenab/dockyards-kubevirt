@@ -30,7 +30,6 @@ import (
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	talospatchv1 "github.com/sudoswedenab/dockyards-kubevirt/internal/talospatch/v1alpha1"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,11 +42,13 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	talospatchv1 "github.com/sudoswedenab/dockyards-kubevirt/internal/talospatch/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
@@ -107,7 +108,7 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	if ownerCluster == nil {
+	if ownerCluster.Name == "" {
 		logger.Info("ignoring dockyards node pool without owner")
 
 		return ctrl.Result{}, nil
@@ -132,15 +133,15 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if dockyardsNodePool.Spec.ControlPlane {
-		return r.reconcileTalosControlPlane(ctx, &dockyardsNodePool, ownerCluster)
+		return r.reconcileTalosControlPlane(ctx, &dockyardsNodePool, &ownerCluster)
 	}
 
-	result, err = r.reconcileTalosConfigTemplate(ctx, &dockyardsNodePool, ownerCluster)
+	result, err = r.reconcileTalosConfigTemplate(ctx, &dockyardsNodePool, &ownerCluster)
 	if err != nil {
 		return result, err
 	}
 
-	result, err = r.reconcileMachineDeployment(ctx, &dockyardsNodePool, ownerCluster)
+	result, err = r.reconcileMachineDeployment(ctx, &dockyardsNodePool, &ownerCluster)
 	if err != nil {
 		return result, err
 	}
@@ -423,7 +424,7 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.
 		return nil, nil, err
 	}
 
-	if ownerCluster == nil {
+	if ownerCluster.Name == "" {
 		return nil, nil, nil
 	}
 
@@ -450,7 +451,7 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.
 
 	customTalosInstallerURL = strings.TrimSpace(customTalosInstallerURL)
 	if !found || customTalosInstallerURL == "" {
-		return ownerCluster, nil, nil
+		return &ownerCluster, nil, nil
 	}
 
 	talosInstallerSizeRaw, _, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
@@ -468,7 +469,7 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.
 		return nil, nil, fmt.Errorf("invalid talos installer size %q: %w", talosInstallerSizeRaw, err)
 	}
 
-	return ownerCluster, &talosInstallerOverride{
+	return &ownerCluster, &talosInstallerOverride{
 		URL:  customTalosInstallerURL,
 		Size: talosInstallerSize,
 	}, nil
@@ -682,7 +683,7 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 		return nil, err
 	}
 
-	if ownerCluster == nil {
+	if ownerCluster.Name == "" {
 		return r.DataVolumeStorageClassName, nil
 	}
 
@@ -725,7 +726,7 @@ func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx cont
 		return nil, err
 	}
 
-	if ownerCluster == nil {
+	if ownerCluster.Name == "" {
 		return ptr.To(r.NetworkInterfaceMultiQueue), nil
 	}
 
@@ -1080,13 +1081,13 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		return ctrl.Result{}, err
 	}
 
-	if cluster.Spec.ControlPlaneRef == nil {
+	if !cluster.Spec.ControlPlaneRef.IsDefined() {
 		patch := client.MergeFrom(cluster.DeepCopy())
 
-		cluster.Spec.ControlPlaneRef = &corev1.ObjectReference{
-			APIVersion: controlplanev1.GroupVersion.String(),
-			Kind:       "TalosControlPlane",
-			Name:       talosControlPlane.Name,
+		cluster.Spec.ControlPlaneRef = clusterv1.ContractVersionedObjectReference{
+			APIGroup: controlplanev1.GroupVersion.Group,
+			Kind:     "TalosControlPlane",
+			Name:     talosControlPlane.Name,
 		}
 
 		err := r.Patch(ctx, &cluster, patch)
@@ -1194,20 +1195,20 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 
 		machineDeployment.Spec.ClusterName = dockyardsCluster.Name
 		machineDeployment.Spec.Template.Spec.ClusterName = dockyardsCluster.Name
-		machineDeployment.Spec.Template.Spec.Version = &dockyardsCluster.Spec.Version
+		machineDeployment.Spec.Template.Spec.Version = dockyardsCluster.Spec.Version
 
 		machineDeployment.Spec.Template.Spec.Bootstrap = clusterv1.Bootstrap{
-			ConfigRef: &corev1.ObjectReference{
-				APIVersion: bootstrapv1.GroupVersion.String(),
-				Kind:       "TalosConfigTemplate",
-				Name:       dockyardsNodePool.Name,
+			ConfigRef: clusterv1.ContractVersionedObjectReference{
+				APIGroup: bootstrapv1.GroupVersion.Group,
+				Kind:     "TalosConfigTemplate",
+				Name:     dockyardsNodePool.Name,
 			},
 		}
 
-		machineDeployment.Spec.Template.Spec.InfrastructureRef = corev1.ObjectReference{
-			APIVersion: providerv1.GroupVersion.String(),
-			Kind:       "KubevirtMachineTemplate",
-			Name:       dockyardsNodePool.Name,
+		machineDeployment.Spec.Template.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
+			APIGroup: providerv1.GroupVersion.Group,
+			Kind:     "KubevirtMachineTemplate",
+			Name:     dockyardsNodePool.Name,
 		}
 
 		return nil

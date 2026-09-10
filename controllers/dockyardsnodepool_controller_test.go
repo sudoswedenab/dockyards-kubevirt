@@ -39,7 +39,7 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -163,10 +163,10 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	}()
 
 	reconciler := DockyardsNodePoolReconciler{
-		Client:                     mgr.GetClient(),
+		Client:                     c,
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		UseBlockStorage:            true,
-		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
 		NetworkInterfaceMultiQueue: true,
 	}
 
@@ -193,6 +193,9 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-owned-",
 				Namespace:    owner.Namespace,
+				Labels: map[string]string{
+					dockyardsv1.LabelClusterName: owner.Name,
+				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
 						APIVersion: dockyardsv1.GroupVersion.String(),
@@ -495,10 +498,10 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 
 	t.Run("test machine template resources without block storage", func(t *testing.T) {
 		nonBlockReconciler := DockyardsNodePoolReconciler{
-			Client:                     mgr.GetClient(),
+			Client:                     c,
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
-			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
 			NetworkInterfaceMultiQueue: true,
 		}
 
@@ -1177,7 +1180,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 			Client:                     mgr.GetClient(),
 			DataVolumeStorageClassName: &dataVolumeStorageClassName,
 			UseBlockStorage:            false,
-			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[string]string{}),
+			DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
 			NetworkInterfaceMultiQueue: true,
 		}
 
@@ -1291,7 +1294,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 	reconciler := DockyardsNodePoolReconciler{
 		Client:          mgr.GetClient(),
-		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
+		DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
 	}
 
 	t.Run("test controlplane node labels", func(t *testing.T) {
@@ -1973,7 +1976,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				"192.168.0.0/16",
 				"fd00:192:168::/56",
 			},
-			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
 		}
 
 		_, err = r.reconcileTalosControlPlane(ctx, &nodePool, &owner)
@@ -2057,8 +2060,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 	t.Run("test controlplane ntp servers", func(t *testing.T) {
 		reconcilerWithNTP := reconciler
-		reconcilerWithNTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
-			string(KeyNtpServers): " 193.41.26.2, time.cloudflare.com,193.41.26.2, ",
+		reconcilerWithNTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+			KeyNtpServers: " 193.41.26.2, time.cloudflare.com,193.41.26.2, ",
 		})
 
 		owner := dockyardsv1.Cluster{
@@ -2175,8 +2178,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 	t.Run("test controlplane ptp devices", func(t *testing.T) {
 		reconcilerWithPTP := reconciler
-		reconcilerWithPTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
-			string(KeyPtpDevices): " eth0, ens1f0, eth0, ",
+		reconcilerWithPTP.DockyardsConfig = dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+			KeyPtpDevices: " eth0, ens1f0, eth0, ",
 		})
 
 		owner := dockyardsv1.Cluster{
@@ -2293,9 +2296,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 
 	t.Run("test controlplane ntp servers and ptp devices", func(t *testing.T) {
 		reconcilerWithTimeSync := reconciler
-		reconcilerWithTimeSync.DockyardsConfig = dyconfig.NewFakeConfigManager(map[string]string{
-			string(KeyNtpServers): "193.41.26.2,time.cloudflare.com",
-			string(KeyPtpDevices): "eth0,ens1f0",
+		reconcilerWithTimeSync.DockyardsConfig = dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+			KeyNtpServers: "193.41.26.2,time.cloudflare.com",
+			KeyPtpDevices: "eth0,ens1f0",
 		})
 
 		owner := dockyardsv1.Cluster{
@@ -2479,7 +2482,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 	reconciler := DockyardsNodePoolReconciler{
 		Client:          mgr.GetClient(),
-		DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{}),
+		DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
 	}
 
 	t.Run("test config template empty owner", func(t *testing.T) {
@@ -2864,10 +2867,10 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
-			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
-				string(KeyHttpProxy):  "http://proxy.example.com:3128",
-				string(KeyHttpsProxy): "http://proxy.example.com:3128",
-				string(KeyNoProxy):    "localhost,127.0.0.1,.cluster.local",
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+				KeyHttpProxy:  "http://proxy.example.com:3128",
+				KeyHttpsProxy: "http://proxy.example.com:3128",
+				KeyNoProxy:    "localhost,127.0.0.1,.cluster.local",
 			}),
 		}
 
@@ -2942,8 +2945,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
-			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
-				string(KeyNtpServers): "193.41.26.2,time.cloudflare.com",
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+				KeyNtpServers: "193.41.26.2,time.cloudflare.com",
 			}),
 		}
 
@@ -3019,8 +3022,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
-			DockyardsConfig: dyconfig.NewFakeConfigManager(map[string]string{
-				string(KeyPtpDevices): " eth0, ens1f0, eth0,",
+			DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
+				KeyPtpDevices: " eth0, ens1f0, eth0,",
 			}),
 		}
 
