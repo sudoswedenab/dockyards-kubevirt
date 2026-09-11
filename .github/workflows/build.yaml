@@ -18,6 +18,20 @@ on:
     branches:
       - main
       - feat/*
+  #   paths:
+  #     - '**/*.go'
+  #     - go.mod
+  #     - go.sum
+  #     - .golangci.yaml
+  #     - Containerfile
+  #     - generate.go
+  #     - api/**
+  #     - cmd/**
+  #     - config/**
+  #     - controllers/**
+  #     - hack/**
+  #     - internal/**
+  # workflow_dispatch:
 permissions:
   id-token: write
   contents: read

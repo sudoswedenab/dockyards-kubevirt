@@ -27,7 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/clustercache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -139,15 +139,6 @@ func main() {
 	gatewayParentReference := gatewayapiv1.ParentReference{
 		Name:      gatewayapiv1.ObjectName(gatewayName),
 		Namespace: ptr.To(gatewayapiv1.Namespace(gatewayNamespace)),
-	}
-
-	err = (&controllers.ClusterAPIClusterReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating clusterapi cluster reconciler")
-
-		os.Exit(1)
 	}
 
 	err = (&controllers.DockyardsNodePoolReconciler{

@@ -27,17 +27,18 @@ import (
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	dockyardskubevirtv1 "github.com/sudoswedenab/dockyards-kubevirt/api/v1alpha1"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	dockyardskubevirtv1 "github.com/sudoswedenab/dockyards-kubevirt/api/v1alpha1"
 )
 
 const (
@@ -152,7 +153,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	talosConfigRef := machine.Spec.Bootstrap.ConfigRef
-	if talosConfigRef == nil || talosConfigRef.Kind != "TalosConfig" {
+	if !talosConfigRef.IsDefined() || talosConfigRef.Kind != "TalosConfig" {
 		return ctrl.Result{}, nil
 	}
 
@@ -194,7 +195,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	if machine.Status.NodeRef != nil {
+	if machine.Status.NodeRef.IsDefined() {
 		if err := r.reconcileLatePatchMachine(ctx, &machine, clusterKey.Name, isControlPlane); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -302,7 +303,7 @@ func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.C
 		return 0, err
 	}
 
-	if cluster.Spec.ControlPlaneRef == nil {
+	if !cluster.Spec.ControlPlaneRef.IsDefined() {
 		return 0, fmt.Errorf("%w: cluster %s/%s has no controlPlaneRef", errControlPlaneRefUnavailable, cluster.Namespace, cluster.Name)
 	}
 
@@ -317,9 +318,6 @@ func (r *DockyardsMachineIPReconciler) desiredControlPlaneReplicas(ctx context.C
 	}
 
 	controlPlaneNamespace := cluster.Namespace
-	if cluster.Spec.ControlPlaneRef.Namespace != "" {
-		controlPlaneNamespace = cluster.Spec.ControlPlaneRef.Namespace
-	}
 
 	controlPlane := &controlplanev1.TalosControlPlane{}
 	controlPlaneKey := types.NamespacedName{Name: cluster.Spec.ControlPlaneRef.Name, Namespace: controlPlaneNamespace}
