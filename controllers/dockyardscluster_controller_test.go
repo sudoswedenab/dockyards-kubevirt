@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
@@ -208,6 +209,57 @@ func TestDockyardsClusterReconciler_ReconcileTLSRouteUsesResolvedParentRef(t *te
 
 	if !cmp.Equal(actual.Spec.ParentRefs[0], parentRef) {
 		t.Fatalf("unexpected parent ref diff: %s", cmp.Diff(parentRef, actual.Spec.ParentRefs[0]))
+	}
+}
+
+func TestDockyardsClusterReconciler_ReconcileKubevirtCluster(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	_ = dockyardsv1.AddToScheme(scheme)
+	_ = providerv1.AddToScheme(scheme)
+
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := DockyardsClusterReconciler{
+		Client: c,
+	}
+
+	cluster := dockyardsv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-kv",
+			Namespace: "tenant-kv",
+			UID:       "cluster-kv-uid",
+		},
+	}
+
+	_, err := r.reconcileKubevirtCluster(context.Background(), &cluster)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	actual := providerv1.KubevirtCluster{}
+	err = c.Get(context.Background(), client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}, &actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if actual.Spec.ControlPlaneServiceTemplate.Spec.Type != corev1.ServiceTypeClusterIP {
+		t.Fatalf("unexpected control plane service type: %q", actual.Spec.ControlPlaneServiceTemplate.Spec.Type)
+	}
+
+	if len(actual.OwnerReferences) != 1 {
+		t.Fatalf("expected one owner reference, got %d", len(actual.OwnerReferences))
+	}
+
+	expectedOwnerRef := metav1.OwnerReference{
+		APIVersion: dockyardsv1.GroupVersion.String(),
+		Kind:       dockyardsv1.ClusterKind,
+		Name:       cluster.Name,
+		UID:        cluster.UID,
+	}
+
+	if !cmp.Equal(actual.OwnerReferences[0], expectedOwnerRef) {
+		t.Fatalf("unexpected owner reference diff: %s", cmp.Diff(expectedOwnerRef, actual.OwnerReferences[0]))
 	}
 }
 

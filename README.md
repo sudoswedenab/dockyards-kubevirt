@@ -74,7 +74,7 @@ flowchart TB
 The diagram highlights how the operator turns Dockyards CRs into Cluster API/KubeVirt/Talos artifacts, mirrors load balancer state from the remote workload cluster through a cluster cache, and wires the shared Gateway to the resulting services.
 
 To keep the diagram compact, flow nodes aggregate the work that would otherwise span many edges:
-- **Kubevirt Flow** bundles the node pool provisioning path: every `DockyardsNodePoolReconciler` call produces `KubevirtCluster`, `KubevirtMachineTemplate`, `TalosControlPlane`, `TalosConfigTemplate`, and `MachineDeployment` resources (plus the CDI-backed DataVolume/DataSource assets) for each node pool.
+- **Kubevirt Flow** bundles the cluster/node pool provisioning path: `DockyardsClusterReconciler` ensures a per-cluster `KubevirtCluster`, while every `DockyardsNodePoolReconciler` call produces `KubevirtMachineTemplate`, `TalosControlPlane`, `TalosConfigTemplate`, and `MachineDeployment` resources (plus the CDI-backed DataVolume/DataSource assets) for each node pool.
 - **Workload Flow** abstracts the `DockyardsWorkloadReconciler` choreography that mirrors remote workload cluster services via `ClusterCache`, creates/patches the management-cluster `core/v1 Service`, and publishes HTTP/TLS routes to the shared gateway.
 - **Project Contour Flow** groups the gateway-side wiring (the `ClusterGatewayService` plus the Project Contour DaemonSet/Ingress components) that front the workload services for users.
 
@@ -82,7 +82,7 @@ To keep the diagram compact, flow nodes aggregate the work that would otherwise 
 
 ### Management cluster orchestration
 `dockyards-kubevirt` runs inside `dockyards-system` alongside `dockyards-backend` and watches every Dockyards resource that defines a customer environment. The reconcilers perform distinct roles:
-- **`DockyardsClusterReconciler`** publishes the shared gateway as the API endpoint anchor and installs the default ingress controller (`ingress-nginx`) unless `Cluster.spec.noDefaultIngressProvider` is set.
+- **`DockyardsClusterReconciler`** ensures a per-cluster `KubevirtCluster`, publishes the shared gateway as the API endpoint anchor, and installs the default ingress controller (`ingress-nginx`) unless `Cluster.spec.noDefaultIngressProvider` is set.
 - **`DockyardsNodePoolReconciler`** bootstraps the KubeVirt/Talos templates for each node pool, wiring the appropriate machine templates, Talos configurations, and machine deployments.
 - **`DockyardsReleaseReconciler`** downloads Talos installers, stores them in CDI `DataVolume`s, and publishes the downstream `DataSource` artifacts.
 - **`DockyardsWorkloadReconciler`** owns the management-cluster `Service`, `HTTPRoute`, and `TLSRoute` objects, keeping gateway hostnames aligned with the Dockyards cluster DNS zones.
@@ -91,7 +91,7 @@ To keep the diagram compact, flow nodes aggregate the work that would otherwise 
 
 ### KubeVirt and Talos provisioning
 The controller stack keeps the KubeVirt and Talos artifacts aligned with the Dockyards cluster and node pool specs:
-- The Cluster API cluster watcher ensures a `KubevirtCluster` infrastructure reference exists for each Dockyards cluster so the provider stack owns the control plane.
+- The cluster reconciler ensures a `KubevirtCluster` exists for each Dockyards cluster.
 - The node pool reconciler maintains `KubevirtMachineTemplate`, `TalosControlPlane`, `TalosConfigTemplate`, and `MachineDeployment` templates in sync with the node pool spec, release images, and shared config patches (Multus, custom node IPs, etc.).
 - The release reconcilier creates/updates a CDI `DataVolume` and downstream `DataSource` that hold the latest Talos installer payload.
 - The node reconciler reads each `KubevirtMachine` to publish resource totals back into the Dockyards nodes.
@@ -227,7 +227,7 @@ Notes:
 - The `--workload-ingress` flag controls whether the operator waits for a shared Gateway IPv4 address and pins the `ingress-nginx` service `loadBalancerIP` to that address; disabling it still installs `ingress-nginx` but leaves its values unmodified.
 
 ## Key components
-- **`ClusterAPIClusterReconciler`** (`controllers/clusterapicluster_controller.go`) keeps a `KubevirtCluster` in sync with every CAPI `Cluster` and populates `Cluster.Spec.InfrastructureRef` so that the provider stack owns the cluster.
+- **`DockyardsClusterReconciler`** (`controllers/dockyardscluster_controller.go`) ensures a per-cluster `KubevirtCluster`, sets API endpoint status from the shared gateway context, creates the default `ingress-nginx` workload unless disabled, and publishes the API `TLSRoute`.
 - **`DockyardsNodePoolReconciler`** (`controllers/dockyardsnodepool_controller.go`) ensures `KubevirtMachineTemplate`, Talos control/worker templates, and `MachineDeployment` objects match the `NodePool` spec, wiring releases, storage classes, config patches, and NodePool conditions so Talos can bring up control plane and worker replicas.
 - **`DockyardsReleaseReconciler`** (`controllers/dockyardsrelease_controller.go`) watches Talos releases, downloads the installer into a CDI `DataVolume`, creates a `DataSource`, and gives the data source creator RBAC so the Talos bootstrap can access the payload.
 - **`DockyardsWorkloadReconciler`** (`controllers/dockyardsworkload_controller.go`) mirrors the workload cluster services into the management cluster, patches their LoadBalancer statuses through `ClusterCache`, and owns the HTTPRoute/TLSRoute objects that bind them to the gateway.

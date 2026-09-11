@@ -141,15 +141,6 @@ func main() {
 		Namespace: ptr.To(gatewayapiv1.Namespace(gatewayNamespace)),
 	}
 
-	err = (&controllers.ClusterAPIClusterReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating clusterapi cluster reconciler")
-
-		os.Exit(1)
-	}
-
 	err = (&controllers.DockyardsNodePoolReconciler{
 		Client:                               mgr.GetClient(),
 		TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
