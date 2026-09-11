@@ -54,7 +54,6 @@ import (
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigtemplates,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datasources,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datavolumes,verbs=create;get;list;patch;watch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=taloscontrolplanes,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
@@ -1074,27 +1073,6 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	logger.Info("reconciled talos control plane", "result", operationResult)
 
 	conditions.MarkTrue(dockyardsNodePool, TalosControlPlaneReconciledCondition, ReconciledReason, "")
-
-	var cluster clusterv1.Cluster
-	err = r.Get(ctx, client.ObjectKeyFromObject(dockyardsCluster), &cluster)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !cluster.Spec.ControlPlaneRef.IsDefined() {
-		patch := client.MergeFrom(cluster.DeepCopy())
-
-		cluster.Spec.ControlPlaneRef = clusterv1.ContractVersionedObjectReference{
-			APIGroup: controlplanev1.GroupVersion.Group,
-			Kind:     "TalosControlPlane",
-			Name:     talosControlPlane.Name,
-		}
-
-		err := r.Patch(ctx, &cluster, patch)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 
 	return ctrl.Result{}, nil
 }
