@@ -94,6 +94,7 @@ The controller stack keeps the KubeVirt and Talos artifacts aligned with the Doc
 - The cluster reconciler ensures a `KubevirtCluster` exists for each Dockyards cluster.
 - The node pool reconciler maintains `KubevirtMachineTemplate`, `TalosControlPlane`, `TalosConfigTemplate`, and `MachineDeployment` templates in sync with the node pool spec, release images, and shared config patches (Multus, custom node IPs, etc.).
 - Wiring `Cluster.spec.controlPlaneRef` is handled by the component that creates the CAPI `Cluster`; `DockyardsNodePoolReconciler` only reconciles the `TalosControlPlane` object.
+- `KubevirtCluster` and `TalosControlPlane` resources are labeled with `dockyards.io/cluster-name` and `dockyards.io/organization-name` to simplify ownership queries.
 - The release reconcilier creates/updates a CDI `DataVolume` and downstream `DataSource` that hold the latest Talos installer payload.
 - The node reconciler reads each `KubevirtMachine` to publish resource totals back into the Dockyards nodes.
 

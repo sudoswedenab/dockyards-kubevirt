@@ -1041,6 +1041,13 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosControlPlane, func() error {
+		if talosControlPlane.Labels == nil {
+			talosControlPlane.Labels = map[string]string{}
+		}
+
+		talosControlPlane.Labels[dockyardsv1.LabelClusterName] = dockyardsCluster.Name
+		talosControlPlane.Labels[dockyardsv1.LabelOrganizationName] = dockyardsCluster.Labels[dockyardsv1.LabelOrganizationName]
+
 		talosControlPlane.Spec.Version = dockyardsCluster.Spec.Version
 
 		if dockyardsNodePool.Spec.Replicas != nil {
