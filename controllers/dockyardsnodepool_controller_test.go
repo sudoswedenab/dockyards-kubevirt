@@ -1302,6 +1302,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
 				Namespace:    namespace.Name,
+				Labels: map[string]string{
+					dockyardsv1.LabelOrganizationName: "org-a",
+				},
 			},
 		}
 
@@ -1340,6 +1343,14 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		if actual.Labels[dockyardsv1.LabelClusterName] != owner.Name {
+			t.Fatalf("expected %s label %q, got %q", dockyardsv1.LabelClusterName, owner.Name, actual.Labels[dockyardsv1.LabelClusterName])
+		}
+
+		if actual.Labels[dockyardsv1.LabelOrganizationName] != owner.Labels[dockyardsv1.LabelOrganizationName] {
+			t.Fatalf("expected %s label %q, got %q", dockyardsv1.LabelOrganizationName, owner.Labels[dockyardsv1.LabelOrganizationName], actual.Labels[dockyardsv1.LabelOrganizationName])
 		}
 
 		configPatch, err := yaml.Marshal(talospatchv1.Config{

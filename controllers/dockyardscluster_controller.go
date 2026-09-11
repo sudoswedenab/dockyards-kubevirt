@@ -138,6 +138,13 @@ func (r *DockyardsClusterReconciler) reconcileKubevirtCluster(ctx context.Contex
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &kubevirtCluster, func() error {
+		if kubevirtCluster.Labels == nil {
+			kubevirtCluster.Labels = map[string]string{}
+		}
+
+		kubevirtCluster.Labels[dockyardsv1.LabelClusterName] = dockyardsCluster.Name
+		kubevirtCluster.Labels[dockyardsv1.LabelOrganizationName] = dockyardsCluster.Labels[dockyardsv1.LabelOrganizationName]
+
 		kubevirtCluster.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: dockyardsv1.GroupVersion.String(),

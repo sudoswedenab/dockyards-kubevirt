@@ -229,6 +229,9 @@ func TestDockyardsClusterReconciler_ReconcileKubevirtCluster(t *testing.T) {
 			Name:      "cluster-kv",
 			Namespace: "tenant-kv",
 			UID:       "cluster-kv-uid",
+			Labels: map[string]string{
+				dockyardsv1.LabelOrganizationName: "org-kv",
+			},
 		},
 	}
 
@@ -245,6 +248,14 @@ func TestDockyardsClusterReconciler_ReconcileKubevirtCluster(t *testing.T) {
 
 	if actual.Spec.ControlPlaneServiceTemplate.Spec.Type != corev1.ServiceTypeClusterIP {
 		t.Fatalf("unexpected control plane service type: %q", actual.Spec.ControlPlaneServiceTemplate.Spec.Type)
+	}
+
+	if actual.Labels[dockyardsv1.LabelClusterName] != cluster.Name {
+		t.Fatalf("expected %s label %q, got %q", dockyardsv1.LabelClusterName, cluster.Name, actual.Labels[dockyardsv1.LabelClusterName])
+	}
+
+	if actual.Labels[dockyardsv1.LabelOrganizationName] != cluster.Labels[dockyardsv1.LabelOrganizationName] {
+		t.Fatalf("expected %s label %q, got %q", dockyardsv1.LabelOrganizationName, cluster.Labels[dockyardsv1.LabelOrganizationName], actual.Labels[dockyardsv1.LabelOrganizationName])
 	}
 
 	if len(actual.OwnerReferences) != 1 {
