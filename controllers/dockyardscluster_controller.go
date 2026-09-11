@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/ptr"
+	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,6 +44,9 @@ import (
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=workloads,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tlsroutes,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=create;get;list;patch;watch
 
 type DockyardsClusterReconciler struct {
 	client.Client
@@ -74,6 +78,11 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
+
+	result, err = r.reconcileKubevirtCluster(ctx, &dockyardsCluster)
+	if err != nil {
+		return result, err
+	}
 
 	gatewayParentReference, err := resolveClusterGatewayParentReference(ctx, r.Client, &dockyardsCluster, r.GatewayParentReference)
 	if err != nil {
@@ -115,6 +124,44 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return result, err
 	}
 
+	return ctrl.Result{}, nil
+}
+
+func (r *DockyardsClusterReconciler) reconcileKubevirtCluster(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	kubevirtCluster := providerv1.KubevirtCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dockyardsCluster.Name,
+			Namespace: dockyardsCluster.Namespace,
+		},
+	}
+
+	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &kubevirtCluster, func() error {
+		kubevirtCluster.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: dockyardsv1.GroupVersion.String(),
+				Kind:       dockyardsv1.ClusterKind,
+				Name:       dockyardsCluster.Name,
+				UID:        dockyardsCluster.UID,
+			},
+		}
+
+		kubevirtCluster.Spec.ControlPlaneServiceTemplate = providerv1.ControlPlaneServiceTemplate{
+			Spec: providerv1.ServiceSpecTemplate{
+				Type: corev1.ServiceTypeClusterIP,
+			},
+		}
+
+		return nil
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if operationResult != controllerutil.OperationResultNone {
+		logger.Info("reconciled kubevirt cluster", "result", operationResult)
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -311,6 +358,7 @@ func (r *DockyardsClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	_ = dockyardsv1.AddToScheme(scheme)
 	_ = gatewayapiv1.Install(scheme)
 	_ = gatewayapiv1alpha2.Install(scheme)
+	_ = providerv1.AddToScheme(scheme)
 
 	err := ctrl.NewControllerManagedBy(mgr).
 		Named("dockyards/cluster").
