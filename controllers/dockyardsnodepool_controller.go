@@ -152,6 +152,8 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
+	publicNamespace := r.DockyardsConfig.GetValueOrDefault(dyconfig.KeyPublicNamespace, "dockyards-public")
+
 	var dataSource cdiv1.DataSource
 	ownerCluster, customTalosInstaller, err := r.resolveTalosInstallerOverride(ctx, dockyardsNodePool)
 	if err != nil {
@@ -204,7 +206,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		nodeClass = &dockyardsv1.NodeClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      dockyardsNodePool.Spec.NodeClassRef.Name,
-				Namespace: dockyardsNodePool.Namespace,
+				Namespace: publicNamespace,
 			},
 		}
 
