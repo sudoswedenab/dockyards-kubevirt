@@ -975,6 +975,151 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	})
 
+	t.Run("test machine template applies node class settings", func(t *testing.T) {
+		nodeClass := dockyardsv1.NodeClass{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-nodeclass-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.NodeClassSpec{
+				NodeSelector: map[string]string{
+					"kubernetes.io/arch": "amd64",
+				},
+				NodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "topology.kubernetes.io/zone",
+										Operator: corev1.NodeSelectorOpIn,
+										Values:   []string{"eu-north-1a"},
+									},
+								},
+							},
+						},
+					},
+				},
+				Tolerations: []corev1.Toleration{
+					{
+						Key:      "dedicated",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "control-plane",
+						Effect:   corev1.TaintEffectNoSchedule,
+					},
+				},
+			},
+		}
+
+		err := c.Create(ctx, &nodeClass)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-nodeclass-pool-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.NodePoolSpec{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU:     resource.MustParse("2"),
+					corev1.ResourceMemory:  resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8G"),
+				},
+				NodeClassRef: &corev1.TypedObjectReference{
+					APIGroup: ptr.To(dockyardsv1.GroupVersion.Group),
+					Kind:     dockyardsv1.NodeClassKind,
+					Name:     nodeClass.Name,
+				},
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		vmSpec := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec
+
+		if !cmp.Equal(vmSpec.NodeSelector, nodeClass.Spec.NodeSelector) {
+			t.Fatalf("unexpected node selector diff: %s", cmp.Diff(nodeClass.Spec.NodeSelector, vmSpec.NodeSelector))
+		}
+
+		if vmSpec.Affinity == nil {
+			t.Fatal("expected affinity to be set")
+		}
+
+		if !cmp.Equal(vmSpec.Affinity.NodeAffinity, nodeClass.Spec.NodeAffinity) {
+			t.Fatalf("unexpected node affinity diff: %s", cmp.Diff(nodeClass.Spec.NodeAffinity, vmSpec.Affinity.NodeAffinity))
+		}
+
+		if !cmp.Equal(vmSpec.Tolerations, nodeClass.Spec.Tolerations) {
+			t.Fatalf("unexpected tolerations diff: %s", cmp.Diff(nodeClass.Spec.Tolerations, vmSpec.Tolerations))
+		}
+	})
+
+	t.Run("test machine template ignores missing node class", func(t *testing.T) {
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-missing-nodeclass-pool-",
+				Namespace:    namespace.Name,
+			},
+			Spec: dockyardsv1.NodePoolSpec{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU:     resource.MustParse("2"),
+					corev1.ResourceMemory:  resource.MustParse("2Gi"),
+					corev1.ResourceStorage: resource.MustParse("8G"),
+				},
+				NodeClassRef: &corev1.TypedObjectReference{
+					APIGroup: ptr.To(dockyardsv1.GroupVersion.Group),
+					Kind:     dockyardsv1.NodeClassKind,
+					Name:     "missing-nodeclass",
+				},
+			},
+		}
+
+		err := c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual providerv1.KubevirtMachineTemplate
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		vmSpec := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec
+		if len(vmSpec.NodeSelector) != 0 {
+			t.Fatalf("expected empty node selector, got: %+v", vmSpec.NodeSelector)
+		}
+
+		if vmSpec.Affinity != nil && vmSpec.Affinity.NodeAffinity != nil {
+			t.Fatalf("expected nil node affinity, got: %+v", vmSpec.Affinity.NodeAffinity)
+		}
+
+		if len(vmSpec.Tolerations) != 0 {
+			t.Fatalf("expected empty tolerations, got: %+v", vmSpec.Tolerations)
+		}
+	})
+
 	t.Run("test machine template storage resources", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{

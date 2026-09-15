@@ -196,6 +196,28 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		return ctrl.Result{}, err
 	}
 
+	var nodeClass *dockyardsv1.NodeClass
+	if dockyardsNodePool.Spec.NodeClassRef != nil {
+		logger.Info("looking up NodeClass for NodePool", "nodePool", dockyardsNodePool.Name, "nodeClass", dockyardsNodePool.Spec.NodeClassRef.Name)
+
+		nodeClass = &dockyardsv1.NodeClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      dockyardsNodePool.Spec.NodeClassRef.Name,
+				Namespace: dockyardsNodePool.Namespace,
+			},
+		}
+
+		err = r.Get(ctx, client.ObjectKeyFromObject(nodeClass), nodeClass)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("NodeClass not found, reconciling machine template without NodeClass settings", "nodePool", dockyardsNodePool.Name, "nodeClass", dockyardsNodePool.Spec.NodeClassRef.Name)
+				nodeClass = nil
+			} else {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	machineTemplate := providerv1.KubevirtMachineTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dockyardsNodePool.Name,
@@ -398,6 +420,24 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 					Networks:         networks,
 				},
 			},
+		}
+
+		if nodeClass != nil {
+			if nodeClass.Spec.NodeSelector != nil {
+				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.NodeSelector = nodeClass.Spec.NodeSelector
+			}
+
+			if nodeClass.Spec.NodeAffinity != nil {
+				if machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity == nil {
+					machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{}
+				}
+
+				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity.NodeAffinity = nodeClass.Spec.NodeAffinity
+			}
+
+			if nodeClass.Spec.Tolerations != nil {
+				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Tolerations = nodeClass.Spec.Tolerations
+			}
 		}
 
 		return nil
