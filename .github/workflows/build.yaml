@@ -16,22 +16,8 @@ name: build
 on:
   push:
     branches:
-      - main
       - feat/*
-  #   paths:
-  #     - '**/*.go'
-  #     - go.mod
-  #     - go.sum
-  #     - .golangci.yaml
-  #     - Containerfile
-  #     - generate.go
-  #     - api/**
-  #     - cmd/**
-  #     - config/**
-  #     - controllers/**
-  #     - hack/**
-  #     - internal/**
-  # workflow_dispatch:
+      - fix/*
 permissions:
   id-token: write
   contents: read
