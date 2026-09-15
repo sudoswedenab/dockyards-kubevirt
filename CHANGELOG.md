@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.0...v0.2.1) (2026-09-15)
+
+
+### Features
+
+* wire node preferences from NodeClass into KubevirtMachineTemplate ([6a3a580](https://github.com/sudoswedenab/dockyards-kubevirt/commit/6a3a5806f4c9751b51ba0657bce3b5f4ff4eeaf9))
+
+
+### Bug Fixes
+
+* expect NodeClass to live in the publicNamespace ([3e47ec6](https://github.com/sudoswedenab/dockyards-kubevirt/commit/3e47ec650cb095ddb3f1e1b74492e7643dc34bdd))
+* kubebuilder tags for nodeclasses lookups ([259a9cb](https://github.com/sudoswedenab/dockyards-kubevirt/commit/259a9cb6e935efc1ddcc3090df9645eeede01cee))
+
 ## [0.2.0](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.1.0...v0.2.0) (2026-09-15)
 
 
