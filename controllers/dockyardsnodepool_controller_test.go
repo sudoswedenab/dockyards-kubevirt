@@ -118,6 +118,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	}
 
 	dataVolumeStorageClassName := "test-block"
+	publicNamespaceName := "dockyards-public"
 
 	dataSource := cdiv1.DataSource{
 		ObjectMeta: metav1.ObjectMeta{
@@ -150,6 +151,17 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	publicNamespace := corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: publicNamespaceName,
+		},
+	}
+
+	err = c.Create(ctx, &publicNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	mgr, err := manager.New(cfg, manager.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +178,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		Client:                     c,
 		DataVolumeStorageClassName: &dataVolumeStorageClassName,
 		UseBlockStorage:            true,
-		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{}),
+		DockyardsConfig:            dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{dyconfig.KeyPublicNamespace: publicNamespaceName}),
 		NetworkInterfaceMultiQueue: true,
 	}
 
@@ -979,7 +991,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		nodeClass := dockyardsv1.NodeClass{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-nodeclass-",
-				Namespace:    namespace.Name,
+				Namespace:    publicNamespaceName,
 			},
 			Spec: dockyardsv1.NodeClassSpec{
 				NodeSelector: map[string]string{
