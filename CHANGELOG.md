@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.1...v0.2.2) (2026-09-16)
+
+
+### Bug Fixes
+
+* reconciliation of NodePool to fail if NodeClass is not found ([338cb4a](https://github.com/sudoswedenab/dockyards-kubevirt/commit/338cb4a7073bfb8de7cf54bed8e5a4c1a224b866))
+
 ## [0.2.1](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.0...v0.2.1) (2026-09-15)
 
 
