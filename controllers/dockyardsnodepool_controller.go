@@ -212,12 +212,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 
 		err = r.Get(ctx, client.ObjectKeyFromObject(nodeClass), nodeClass)
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("NodeClass not found, reconciling machine template without NodeClass settings", "nodePool", dockyardsNodePool.Name, "nodeClass", dockyardsNodePool.Spec.NodeClassRef.Name)
-				nodeClass = nil
-			} else {
-				return ctrl.Result{}, err
-			}
+			return ctrl.Result{}, err
 		}
 	}
 

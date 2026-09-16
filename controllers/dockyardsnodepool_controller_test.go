@@ -31,6 +31,7 @@ import (
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -1082,7 +1083,7 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("test machine template ignores missing node class", func(t *testing.T) {
+	t.Run("test machine template fails on missing node class", func(t *testing.T) {
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-missing-nodeclass-pool-",
@@ -1108,27 +1109,22 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 		}
 
 		_, err = reconciler.reconcileMachineTemplate(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("expected missing NodeClass error")
+		}
+
+		if !apierrors.IsNotFound(err) {
+			t.Fatalf("expected not found error, got: %v", err)
 		}
 
 		var actual providerv1.KubevirtMachineTemplate
 		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("expected machine template to not be created")
 		}
 
-		vmSpec := actual.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec
-		if len(vmSpec.NodeSelector) != 0 {
-			t.Fatalf("expected empty node selector, got: %+v", vmSpec.NodeSelector)
-		}
-
-		if vmSpec.Affinity != nil && vmSpec.Affinity.NodeAffinity != nil {
-			t.Fatalf("expected nil node affinity, got: %+v", vmSpec.Affinity.NodeAffinity)
-		}
-
-		if len(vmSpec.Tolerations) != 0 {
-			t.Fatalf("expected empty tolerations, got: %+v", vmSpec.Tolerations)
+		if !apierrors.IsNotFound(err) {
+			t.Fatalf("expected machine template lookup to return not found, got: %v", err)
 		}
 	})
 
