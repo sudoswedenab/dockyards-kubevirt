@@ -724,29 +724,10 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 		return r.DataVolumeStorageClassName, nil
 	}
 
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      ownerCluster.Name,
-				"namespace": ownerCluster.Namespace,
-			},
-		},
-	}
-
-	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return nil, err
-	}
-
-	clusterStorageClassName, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", clusterDataVolumeStorageClassNameKey)
-	if err != nil {
-		return nil, err
-	}
+	clusterStorageClassName := ownerCluster.Spec.Advanced.Kubevirt.DataVolumeStorageClassName
 
 	clusterStorageClassName = strings.TrimSpace(clusterStorageClassName)
-	if found && clusterStorageClassName != "" {
+	if clusterStorageClassName != "" {
 		return ptr.To(clusterStorageClassName), nil
 	}
 
