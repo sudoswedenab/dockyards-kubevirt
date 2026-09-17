@@ -1561,28 +1561,11 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeLabels: map[string]string{"node-role.kubernetes.io/control-plane": ""},
+			},
 		}
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeLabels, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedStringMap(u.Object, map[string]string{"node-role.kubernetes.io/control-plane": ""}, "spec", "nodeLabels")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1684,31 +1667,11 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeTaints: map[string]string{"node-role.kubernetes.io/control-plane": "hz:NoSchedule"},
+			},
 		}
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeTaints, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedStringMap(u.Object, map[string]string{
-			"node-role.kubernetes.io/control-plane": "hz:NoSchedule",
-		}, "spec", "nodeTaints")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1810,31 +1773,11 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeTaints: map[string]string{"node-role.kubernetes.io/control-plane": "hz:NeverSchedule"},
+			},
 		}
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeTaints, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedStringMap(u.Object, map[string]string{
-			"node-role.kubernetes.io/control-plane": "hz:NeverSchedule",
-		}, "spec", "nodeTaints")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1845,7 +1788,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test controlplane node taints with invalid object format returns error", func(t *testing.T) {
+	t.Run("test controlplane node taints with invalid format returns error", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
@@ -1884,34 +1827,11 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeTaints: map[string]string{"node-role.kubernetes.io/control-plane": "hz"},
+			},
 		}
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeTaints, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedField(u.Object, map[string]any{
-			"node-role.kubernetes.io/control-plane": map[string]any{
-				"value":  "hz",
-				"effect": "NoSchedule",
-			},
-		}, "spec", "nodeTaints")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2782,29 +2702,12 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+			},
 		}
 
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeLabels, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedStringMap(u.Object, map[string]string{"node-role.kubernetes.io/worker": ""}, "spec", "nodeLabels")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2867,31 +2770,12 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeTaints: map[string]string{"node-role.kubernetes.io/worker": "hz:NoSchedule"},
+			},
 		}
 
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeTaints, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedStringMap(u.Object, map[string]string{
-			"node-role.kubernetes.io/worker": "hz:NoSchedule",
-		}, "spec", "nodeTaints")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2954,31 +2838,12 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 				GenerateName: owner.Name + "-test-",
 				Namespace:    owner.Namespace,
 			},
+			Spec: dockyardsv1.NodePoolSpec{
+				NodeTaints: map[string]string{"node-role.kubernetes.io/worker": "hz:NeverSchedule"},
+			},
 		}
 
 		err = c.Create(ctx, &nodePool)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// The NodePool type doesn't currently model spec.nodeTaints, so patch it in unstructured.
-		var u unstructured.Unstructured
-		u.SetAPIVersion(dockyardsv1.GroupVersion.String())
-		u.SetKind(dockyardsv1.NodePoolKind)
-		u.SetName(nodePool.Name)
-		u.SetNamespace(nodePool.Namespace)
-		err = c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedStringMap(u.Object, map[string]string{
-			"node-role.kubernetes.io/worker": "hz:NeverSchedule",
-		}, "spec", "nodeTaints")
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = c.Patch(ctx, &u, p)
 		if err != nil {
 			t.Fatal(err)
 		}
