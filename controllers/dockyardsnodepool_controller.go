@@ -80,9 +80,6 @@ type DockyardsNodePoolReconciler struct {
 }
 
 const (
-	clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
-	clusterTalosInstallerURLKey          = "url"
-	clusterTalosInstallerSizeKey         = "size"
 	defaultTalosInstallerDataVolumeSize  = "8Gi"
 	clusterNetworkInterfaceMultiqueueKey = "networkInterfaceMultiqueue"
 )
@@ -465,36 +462,14 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.
 		return nil, nil, nil
 	}
 
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      ownerCluster.Name,
-				"namespace": ownerCluster.Namespace,
-			},
-		},
-	}
-
-	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	customTalosInstallerURL, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
-	if err != nil {
-		return nil, nil, err
-	}
+	customTalosInstallerURL := ownerCluster.Spec.Advanced.Kubevirt.Talos.InstallImage.URL
 
 	customTalosInstallerURL = strings.TrimSpace(customTalosInstallerURL)
-	if !found || customTalosInstallerURL == "" {
+	if customTalosInstallerURL == "" {
 		return &ownerCluster, nil, nil
 	}
 
-	talosInstallerSizeRaw, _, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
-	if err != nil {
-		return nil, nil, err
-	}
+	talosInstallerSizeRaw := ownerCluster.Spec.Advanced.Kubevirt.Talos.InstallImage.Size
 
 	talosInstallerSizeRaw = strings.TrimSpace(talosInstallerSizeRaw)
 	if talosInstallerSizeRaw == "" {

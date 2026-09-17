@@ -238,29 +238,22 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	setClusterStorageClassOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
 		t.Helper()
 
-		u := unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": dockyardsv1.GroupVersion.String(),
-				"kind":       dockyardsv1.ClusterKind,
-				"metadata": map[string]any{
-					"name":      owner.Name,
-					"namespace": owner.Namespace,
-				},
+		dockyardsCluster := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      owner.Name,
+				Namespace: owner.Namespace,
 			},
 		}
 
-		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		err := c.Get(ctx, client.ObjectKeyFromObject(&dockyardsCluster), &dockyardsCluster)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		patch := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", clusterDataVolumeStorageClassNameKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		patch := client.MergeFrom(dockyardsCluster.DeepCopy())
+		dockyardsCluster.Spec.Advanced.Kubevirt.DataVolumeStorageClassName = value
 
-		err = c.Patch(ctx, &u, patch)
+		err = c.Patch(ctx, &dockyardsCluster, patch)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,29 +262,22 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	setClusterTalosInstallerURLOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
 		t.Helper()
 
-		u := unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": dockyardsv1.GroupVersion.String(),
-				"kind":       dockyardsv1.ClusterKind,
-				"metadata": map[string]any{
-					"name":      owner.Name,
-					"namespace": owner.Namespace,
-				},
+		dockyardsCluster := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      owner.Name,
+				Namespace: owner.Namespace,
 			},
 		}
 
-		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		err := c.Get(ctx, client.ObjectKeyFromObject(&dockyardsCluster), &dockyardsCluster)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		patch := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		patch := client.MergeFrom(dockyardsCluster.DeepCopy())
+		dockyardsCluster.Spec.Advanced.Kubevirt.Talos.InstallImage.URL = value
 
-		err = c.Patch(ctx, &u, patch)
+		err = c.Patch(ctx, &dockyardsCluster, patch)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,29 +286,22 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	setClusterTalosInstallerSizeOverride := func(t *testing.T, owner dockyardsv1.Cluster, value string) {
 		t.Helper()
 
-		u := unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": dockyardsv1.GroupVersion.String(),
-				"kind":       dockyardsv1.ClusterKind,
-				"metadata": map[string]any{
-					"name":      owner.Name,
-					"namespace": owner.Namespace,
-				},
+		dockyardsCluster := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      owner.Name,
+				Namespace: owner.Namespace,
 			},
 		}
 
-		err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+		err := c.Get(ctx, client.ObjectKeyFromObject(&dockyardsCluster), &dockyardsCluster)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		patch := client.MergeFrom(u.DeepCopy())
-		err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		patch := client.MergeFrom(dockyardsCluster.DeepCopy())
+		dockyardsCluster.Spec.Advanced.Kubevirt.Talos.InstallImage.Size = value
 
-		err = c.Patch(ctx, &u, patch)
+		err = c.Patch(ctx, &dockyardsCluster, patch)
 		if err != nil {
 			t.Fatal(err)
 		}
