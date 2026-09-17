@@ -80,9 +80,6 @@ type DockyardsNodePoolReconciler struct {
 }
 
 const (
-	clusterDataVolumeStorageClassNameKey = "dataVolumeStorageClassName"
-	clusterTalosInstallerURLKey          = "url"
-	clusterTalosInstallerSizeKey         = "size"
 	defaultTalosInstallerDataVolumeSize  = "8Gi"
 	clusterNetworkInterfaceMultiqueueKey = "networkInterfaceMultiqueue"
 )
@@ -465,36 +462,14 @@ func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.
 		return nil, nil, nil
 	}
 
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      ownerCluster.Name,
-				"namespace": ownerCluster.Namespace,
-			},
-		},
-	}
-
-	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	customTalosInstallerURL, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerURLKey)
-	if err != nil {
-		return nil, nil, err
-	}
+	customTalosInstallerURL := ownerCluster.Spec.Advanced.Kubevirt.Talos.InstallImage.URL
 
 	customTalosInstallerURL = strings.TrimSpace(customTalosInstallerURL)
-	if !found || customTalosInstallerURL == "" {
+	if customTalosInstallerURL == "" {
 		return &ownerCluster, nil, nil
 	}
 
-	talosInstallerSizeRaw, _, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", "installImage", clusterTalosInstallerSizeKey)
-	if err != nil {
-		return nil, nil, err
-	}
+	talosInstallerSizeRaw := ownerCluster.Spec.Advanced.Kubevirt.Talos.InstallImage.Size
 
 	talosInstallerSizeRaw = strings.TrimSpace(talosInstallerSizeRaw)
 	if talosInstallerSizeRaw == "" {
@@ -724,29 +699,10 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 		return r.DataVolumeStorageClassName, nil
 	}
 
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      ownerCluster.Name,
-				"namespace": ownerCluster.Namespace,
-			},
-		},
-	}
-
-	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return nil, err
-	}
-
-	clusterStorageClassName, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", clusterDataVolumeStorageClassNameKey)
-	if err != nil {
-		return nil, err
-	}
+	clusterStorageClassName := ownerCluster.Spec.Advanced.Kubevirt.DataVolumeStorageClassName
 
 	clusterStorageClassName = strings.TrimSpace(clusterStorageClassName)
-	if found && clusterStorageClassName != "" {
+	if clusterStorageClassName != "" {
 		return ptr.To(clusterStorageClassName), nil
 	}
 
@@ -848,34 +804,14 @@ func (r *DockyardsNodePoolReconciler) taintConfigPatch(taints map[string]string)
 	}
 }
 
-func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, strategicPatches *StrategicPatches) error {
-	unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.NodePoolKind,
-			"metadata": map[string]any{
-				"name":      dockyardsNodePool.Name,
-				"namespace": dockyardsNodePool.Namespace,
-			},
-		},
-	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend), &unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend)
-	if err != nil {
-		return fmt.Errorf("could not get unstructured nodepool object: %w", err)
-	}
-
-	value := unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend.Object
-	labels, found, err := unstructured.NestedStringMap(value, "spec", "nodeLabels")
-	if err != nil {
-		return fmt.Errorf("could not read spec.nodeLabels: %w", err)
-	}
-	if !found || len(labels) == 0 {
+func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(dockyardsNodePool *dockyardsv1.NodePool, strategicPatches *StrategicPatches) error {
+	labels := dockyardsNodePool.Spec.NodeLabels
+	if len(labels) == 0 {
 		return nil
 	}
 
 	patch := r.labelConfigPatch(labels)
-	err = strategicPatches.Add(ptr.To(patch))
+	err := strategicPatches.Add(new(patch))
 	if err != nil {
 		return fmt.Errorf("could not add node labels strategic patch: %w", err)
 	}
@@ -883,29 +819,9 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(ctx conte
 	return nil
 }
 
-func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, strategicPatches *StrategicPatches) error {
-	unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.NodePoolKind,
-			"metadata": map[string]any{
-				"name":      dockyardsNodePool.Name,
-				"namespace": dockyardsNodePool.Namespace,
-			},
-		},
-	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend), &unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend)
-	if err != nil {
-		return fmt.Errorf("could not get unstructured nodepool object: %w", err)
-	}
-
-	value := unstructuredDockyardsNodePoolFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackend.Object
-	taints, found, err := unstructured.NestedStringMap(value, "spec", "nodeTaints")
-	if err != nil {
-		return fmt.Errorf("could not read spec.nodeTaints: %w", err)
-	}
-	if !found || len(taints) == 0 {
+func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(dockyardsNodePool *dockyardsv1.NodePool, strategicPatches *StrategicPatches) error {
+	taints := dockyardsNodePool.Spec.NodeTaints
+	if len(taints) == 0 {
 		return nil
 	}
 
@@ -932,7 +848,7 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(ctx conte
 	}
 
 	patch := r.taintConfigPatch(taints)
-	err = strategicPatches.Add(ptr.To(patch))
+	err := strategicPatches.Add(new(patch))
 	if err != nil {
 		return fmt.Errorf("could not add node taints strategic patch: %w", err)
 	}
@@ -942,7 +858,6 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(ctx conte
 
 func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	dockyardsCluster *dockyardsv1.Cluster,
-	unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI unstructured.Unstructured,
 	strategicPatches *StrategicPatches,
 ) error {
 	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
@@ -955,13 +870,13 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 		return fmt.Errorf("could not add time sync config patches: %w", err)
 	}
 
-	value := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
-	patches, found, err := unstructured.NestedSlice(value, "spec", "advanced", "kubevirt", "talos", "additionalSharedConfigPatches")
-	if found && err == nil {
-		err = strategicPatches.AddManyUnstructured(patches)
+	patches := dockyardsCluster.Spec.Advanced.Kubevirt.Talos.AdditionalSharedConfigPatches
+	if len(patches) > 0 {
+		err = strategicPatches.AddMany(patches)
 		if err != nil {
 			return err
 		}
+
 	}
 
 	return nil
@@ -969,22 +884,6 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
-
-	unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "dockyards.io/v1alpha3",
-			"kind":       "Cluster",
-			"metadata": map[string]any{
-				"name":      dockyardsCluster.Name,
-				"namespace": dockyardsCluster.Namespace,
-			},
-		},
-	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("could not get unstructured cluster object: %w", err)
-	}
 
 	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, WaitingForClusterEndpointReason, "")
@@ -994,21 +893,21 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 	var strategicPatches StrategicPatches
 
-	err = r.addSharedConfigPatches(dockyardsCluster, unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI, &strategicPatches)
+	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
 		return ctrl.Result{}, nil
 	}
 
-	err = r.addNodePoolNodeLabelsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
+	err = r.addNodePoolNodeLabelsConfigPatch(dockyardsNodePool, &strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
 		return ctrl.Result{}, nil
 	}
 
-	err = r.addNodePoolNodeTaintsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
+	err = r.addNodePoolNodeTaintsConfigPatch(dockyardsNodePool, &strategicPatches)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
@@ -1032,9 +931,8 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	}
 
 	// Authentication configuration
-	obj := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
-	authenticationConfig, found, err := unstructured.NestedMap(obj, "spec", "authenticationConfig")
-	if err == nil && found {
+	authenticationConfig := dockyardsCluster.Spec.AuthenticationConfig
+	if authenticationConfig != nil {
 		content, err := yaml.Marshal(authenticationConfig)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("could not marshal authentication config: %w", err)
@@ -1062,10 +960,9 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		return ctrl.Result{}, nil
 	}
 
-	value := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
-	patches, found, err := unstructured.NestedSlice(value, "spec", "advanced", "kubevirt", "talos", "additionalControlPlaneConfigPatches")
-	if found && err == nil {
-		err = strategicPatches.AddManyUnstructured(patches)
+	patches := dockyardsCluster.Spec.Advanced.Kubevirt.Talos.AdditionalControlPlaneConfigPatches
+	if len(patches) > 0 {
+		err = strategicPatches.AddMany(patches)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -1125,44 +1022,27 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "dockyards.io/v1alpha3",
-			"kind":       "Cluster",
-			"metadata": map[string]any{
-				"name":      dockyardsCluster.Name,
-				"namespace": dockyardsCluster.Namespace,
-			},
-		},
-	}
-
-	err := r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI), &unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("could not get unstructured cluster object: %w", err)
-	}
-
 	var strategicPatches StrategicPatches
 
-	err = r.addSharedConfigPatches(dockyardsCluster, unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI, &strategicPatches)
+	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	value := unstructuredDockyardsClusterFIXMERemoveThisWhenTalosHasUpdatedClusterAPIAndSoWeCanUpdateBackendAPI.Object
-	patches, found, err := unstructured.NestedSlice(value, "spec", "advanced", "kubevirt", "talos", "additionalWorkerConfigPatches")
-	if found && err == nil {
-		err = strategicPatches.AddManyUnstructured(patches)
+	patches := dockyardsCluster.Spec.Advanced.Kubevirt.Talos.AdditionalWorkerConfigPatches
+	if len(patches) > 0 {
+		err = strategicPatches.AddMany(patches)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	err = r.addNodePoolNodeLabelsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
+	err = r.addNodePoolNodeLabelsConfigPatch(dockyardsNodePool, &strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.addNodePoolNodeTaintsConfigPatch(ctx, dockyardsNodePool, &strategicPatches)
+	err = r.addNodePoolNodeTaintsConfigPatch(dockyardsNodePool, &strategicPatches)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1346,21 +1226,29 @@ func (patches *StrategicPatches) Add(value yaml.IsZeroer) error {
 	return nil
 }
 
-func (patches *StrategicPatches) AddManyUnstructured(value []any) error {
+func (patches *StrategicPatches) AddMany(value []dockyardsv1.Patch) error {
 	if len(value) == 0 {
-		// Nothing to add :)
 		return nil
 	}
 
 	*patches = slices.Grow(*patches, len(value))
 	for _, item := range value {
-		result, err := yaml.Marshal(item)
+		if len(item.Raw) == 0 {
+			continue
+		}
+
+		decoded := map[string]any{}
+		err := yaml.Unmarshal(item.Raw, &decoded)
+		if err != nil {
+			return fmt.Errorf("could not decode strategic patch: %w", err)
+		}
+
+		result, err := yaml.Marshal(decoded)
 		if err != nil {
 			return err
 		}
 		*patches = append(*patches, string(result))
 	}
-
 	return nil
 }
 

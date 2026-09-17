@@ -17,18 +17,19 @@ package controllers
 import (
 	"testing"
 
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func TestClusterGatewayParentReference(t *testing.T) {
 	t.Run("returns parent ref when name and namespace are set", func(t *testing.T) {
-		cluster := map[string]any{
-			"spec": map[string]any{
-				"advanced": map[string]any{
-					"gateway": map[string]any{
-						"parentRef": map[string]any{
-							"name":      "shared-gateway",
-							"namespace": "gateway-system",
+		cluster := &dockyardsv1.Cluster{
+			Spec: dockyardsv1.ClusterSpec{
+				Advanced: dockyardsv1.ClusterAdvancedOptions{
+					Gateway: dockyardsv1.ClusterGatewayOptions{
+						ParentRef: dockyardsv1.ClusterGatewayParentRefOptions{
+							Name:      "shared-gateway",
+							Namespace: "gateway-system",
 						},
 					},
 				},
@@ -58,12 +59,12 @@ func TestClusterGatewayParentReference(t *testing.T) {
 	})
 
 	t.Run("returns not found when name is missing", func(t *testing.T) {
-		cluster := map[string]any{
-			"spec": map[string]any{
-				"advanced": map[string]any{
-					"gateway": map[string]any{
-						"parentRef": map[string]any{
-							"namespace": "gateway-system",
+		cluster := &dockyardsv1.Cluster{
+			Spec: dockyardsv1.ClusterSpec{
+				Advanced: dockyardsv1.ClusterAdvancedOptions{
+					Gateway: dockyardsv1.ClusterGatewayOptions{
+						ParentRef: dockyardsv1.ClusterGatewayParentRefOptions{
+							Namespace: "gateway-system",
 						},
 					},
 				},
@@ -81,12 +82,12 @@ func TestClusterGatewayParentReference(t *testing.T) {
 	})
 
 	t.Run("returns not found when namespace is missing", func(t *testing.T) {
-		cluster := map[string]any{
-			"spec": map[string]any{
-				"advanced": map[string]any{
-					"gateway": map[string]any{
-						"parentRef": map[string]any{
-							"name": "shared-gateway",
+		cluster := &dockyardsv1.Cluster{
+			Spec: dockyardsv1.ClusterSpec{
+				Advanced: dockyardsv1.ClusterAdvancedOptions{
+					Gateway: dockyardsv1.ClusterGatewayOptions{
+						ParentRef: dockyardsv1.ClusterGatewayParentRefOptions{
+							Name: "shared-gateway",
 						},
 					},
 				},
@@ -104,13 +105,13 @@ func TestClusterGatewayParentReference(t *testing.T) {
 	})
 
 	t.Run("returns not found for empty values", func(t *testing.T) {
-		cluster := map[string]any{
-			"spec": map[string]any{
-				"advanced": map[string]any{
-					"gateway": map[string]any{
-						"parentRef": map[string]any{
-							"name":      "   ",
-							"namespace": "  ",
+		cluster := &dockyardsv1.Cluster{
+			Spec: dockyardsv1.ClusterSpec{
+				Advanced: dockyardsv1.ClusterAdvancedOptions{
+					Gateway: dockyardsv1.ClusterGatewayOptions{
+						ParentRef: dockyardsv1.ClusterGatewayParentRefOptions{
+							Name:      "   ",
+							Namespace: "  ",
 						},
 					},
 				},

@@ -15,44 +15,18 @@
 package controllers
 
 import (
-	"context"
 	"strings"
 
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-const (
-	clusterGatewayParentRefNameKey      = "name"
-	clusterGatewayParentRefNamespaceKey = "namespace"
-)
-
 func resolveClusterGatewayParentReference(
-	ctx context.Context,
-	c client.Client,
 	ownerCluster *dockyardsv1.Cluster,
 	fallback gatewayapiv1.ParentReference,
 ) (gatewayapiv1.ParentReference, error) {
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      ownerCluster.Name,
-				"namespace": ownerCluster.Namespace,
-			},
-		},
-	}
-
-	err := c.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, err
-	}
-
-	clusterParentRef, found, err := clusterGatewayParentReference(unstructuredDockyardsCluster.Object)
+	clusterParentRef, found, err := clusterGatewayParentReference(ownerCluster)
 	if err != nil {
 		return gatewayapiv1.ParentReference{}, err
 	}
@@ -64,24 +38,18 @@ func resolveClusterGatewayParentReference(
 	return fallback, nil
 }
 
-func clusterGatewayParentReference(cluster map[string]any) (gatewayapiv1.ParentReference, bool, error) {
-	name, found, err := unstructured.NestedString(cluster, "spec", "advanced", "gateway", "parentRef", clusterGatewayParentRefNameKey)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, false, err
-	}
+func clusterGatewayParentReference(cluster *dockyardsv1.Cluster) (gatewayapiv1.ParentReference, bool, error) {
+	name := cluster.Spec.Advanced.Gateway.ParentRef.Name
 
 	name = strings.TrimSpace(name)
-	if !found || name == "" {
+	if name == "" {
 		return gatewayapiv1.ParentReference{}, false, nil
 	}
 
-	namespace, found, err := unstructured.NestedString(cluster, "spec", "advanced", "gateway", "parentRef", clusterGatewayParentRefNamespaceKey)
-	if err != nil {
-		return gatewayapiv1.ParentReference{}, false, err
-	}
+	namespace := cluster.Spec.Advanced.Gateway.ParentRef.Namespace
 
 	namespace = strings.TrimSpace(namespace)
-	if !found || namespace == "" {
+	if namespace == "" {
 		return gatewayapiv1.ParentReference{}, false, nil
 	}
 

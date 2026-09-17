@@ -84,7 +84,7 @@ func (r *DockyardsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return result, err
 	}
 
-	gatewayParentReference, err := resolveClusterGatewayParentReference(ctx, r.Client, &dockyardsCluster, r.GatewayParentReference)
+	gatewayParentReference, err := resolveClusterGatewayParentReference(&dockyardsCluster, r.GatewayParentReference)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

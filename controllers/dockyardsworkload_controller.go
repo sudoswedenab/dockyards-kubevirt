@@ -398,7 +398,7 @@ func (r *DockyardsWorkloadReconciler) serviceToWorkload(ctx context.Context, obj
 }
 
 func (r *DockyardsWorkloadReconciler) resolveGatewayParentReference(ctx context.Context, ownerCluster *dockyardsv1.Cluster) (gatewayapiv1.ParentReference, error) {
-	return resolveClusterGatewayParentReference(ctx, r.Client, ownerCluster, r.GatewayParentReference)
+	return resolveClusterGatewayParentReference(ownerCluster, r.GatewayParentReference)
 }
 
 func (r *DockyardsWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
