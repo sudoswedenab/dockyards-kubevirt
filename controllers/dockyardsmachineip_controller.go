@@ -88,7 +88,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	config, err := r.getExternalNodeConfig(ctx, clusterKey)
+	config, err := r.getExternalNodeConfig(&dockyardsCluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -250,25 +250,9 @@ func (r *DockyardsMachineIPReconciler) hasDeletingMachineInRole(ctx context.Cont
 	return false, nil
 }
 
-func (r *DockyardsMachineIPReconciler) getExternalNodeConfig(ctx context.Context, clusterKey types.NamespacedName) (*externalNodeConfig, error) {
-	unstructuredCluster := unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": dockyardsv1.GroupVersion.String(),
-		"kind":       dockyardsv1.ClusterKind,
-		"metadata": map[string]any{
-			"name":      clusterKey.Name,
-			"namespace": clusterKey.Namespace,
-		},
-	}}
-
-	if err := r.Get(ctx, clusterKey, &unstructuredCluster); err != nil {
-		return nil, err
-	}
-
-	subnetRaw, found, err := unstructured.NestedString(unstructuredCluster.Object, "spec", "advanced", "kubevirt", "talos", "externalNodeIPv4Subnet")
-	if err != nil {
-		return nil, err
-	}
-	if !found || subnetRaw == "" {
+func (r *DockyardsMachineIPReconciler) getExternalNodeConfig(cluster *dockyardsv1.Cluster) (*externalNodeConfig, error) {
+	subnetRaw := cluster.Spec.Advanced.Kubevirt.Talos.ExternalNodeIPv4Subnet
+	if subnetRaw == "" {
 		return nil, nil
 	}
 
@@ -281,12 +265,9 @@ func (r *DockyardsMachineIPReconciler) getExternalNodeConfig(ctx context.Context
 		return nil, fmt.Errorf("externalNodeIPv4Subnet %q is not IPv4", subnetRaw)
 	}
 
-	interfaceName, found, err := unstructured.NestedString(unstructuredCluster.Object, "spec", "advanced", "kubevirt", "talos", "externalNodeInterface")
-	if err != nil {
-		return nil, err
-	}
+	interfaceName := cluster.Spec.Advanced.Kubevirt.Talos.ExternalNodeInterface
 
-	if !found || interfaceName == "" {
+	if interfaceName == "" {
 		interfaceName = defaultExternalNodeInterface
 	}
 
