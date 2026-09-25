@@ -35,6 +35,7 @@ type DockyardsIPAMClaimStatus struct {
 	Reason             string `json:"reason,omitempty"`
 	Message            string `json:"message,omitempty"`
 	ObservedGeneration int64  `json:"observedGeneration,omitempty"`
+	AppliedConfigHash  string `json:"appliedConfigHash,omitempty"`
 }
 
 // +kubebuilder:object:root=true

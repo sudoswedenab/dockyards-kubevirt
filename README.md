@@ -150,6 +150,10 @@ Notes:
 - Changing the URL creates a new `DataVolume` and repoints the `DataSource` to it.
 - Empty or missing values fall back to the default Talos release `DataSource`.
 
+#### External node IP configuration on running machines
+
+When a CAPI Machine is already running and its generated Talos bootstrap configuration is missing its allocated external IP, the machine IP controller patches the bootstrap Secret and applies the resulting configuration directly through the Talos API in `AUTO` mode. It waits while a CAPI in-place update is active, then applies the latest Secret contents; Talos decides if a reboot is required. Successfully applied addresses are recorded on the IPAM claim so retries do not repeatedly apply the same configuration.
+
 #### Per-cluster network interface multiqueue
 
 To enable KubeVirt virtio network multiqueue per Dockyards cluster, set `spec.advanced.kubevirt.networkInterfaceMultiqueue` on the owning `dockyards.io/v1alpha3 Cluster`:
