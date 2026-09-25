@@ -19,6 +19,7 @@ on:
       - feat/*
       - fix/*
       - main/*
+      - refactor/*
     paths:
       - '**/*.go'
       - go.mod
