@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
@@ -47,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	talospatchv1 "github.com/sudoswedenab/dockyards-kubevirt/internal/talospatch/v1alpha1"
 )
@@ -933,7 +936,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	// Authentication configuration
 	authenticationConfig := dockyardsCluster.Spec.AuthenticationConfig
 	if authenticationConfig != nil {
-		content, err := yaml.Marshal(authenticationConfig)
+		content, err := marshalAuthenticationConfig(authenticationConfig)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("could not marshal authentication config: %w", err)
 		}
@@ -1017,6 +1020,19 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	conditions.MarkTrue(dockyardsNodePool, TalosControlPlaneReconciledCondition, ReconciledReason, "")
 
 	return ctrl.Result{}, nil
+}
+
+func marshalAuthenticationConfig(authenticationConfig *apiserverv1.AuthenticationConfiguration) ([]byte, error) {
+	config := *authenticationConfig
+	config.TypeMeta.APIVersion = "apiserver.config.k8s.io/v1"
+	config.TypeMeta.Kind = "AuthenticationConfiguration"
+
+	jsonData, err := json.Marshal(&config)
+	if err != nil {
+		return nil, err
+	}
+
+	return sigsyaml.JSONToYAML(jsonData)
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
