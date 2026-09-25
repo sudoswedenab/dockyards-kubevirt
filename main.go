@@ -198,7 +198,8 @@ func main() {
 	}
 
 	err = (&controllers.DockyardsMachineIPReconciler{
-		Client: mgr.GetClient(),
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr)
 	if err != nil {
 		slogr.Error(err, "error creating dockyards machine IP reconciler")
