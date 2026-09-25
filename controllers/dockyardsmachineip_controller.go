@@ -17,16 +17,22 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"net/netip"
 	"slices"
+	"strings"
 	"time"
 
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
+	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
+	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
+	talosconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
+	"google.golang.org/grpc"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +56,10 @@ const (
 	ipamClaimPhasePending = "Pending"
 	ipamClaimPhaseReady   = "Ready"
 	ipamClaimPhaseFailed  = "Failed"
+
+	talosInPlaceConfigHashAnnotation = "bootstrap.cluster.x-k8s.io/in-place-config-hash"
+	pendingHooksAnnotation           = "runtime.cluster.x-k8s.io/pending-hooks"
+	updateMachineHookName            = "UpdateMachine"
 )
 
 var (
@@ -60,14 +70,23 @@ var (
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;patch;update;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=talosconfigs,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=delete;get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=ipamclaims,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=kubevirt.dockyards.io,resources=ipamclaims/status,verbs=get;patch;update
 
 type DockyardsMachineIPReconciler struct {
 	client.Client
+	APIReader      client.Reader
+	newTalosClient talosMachineClientFactory
 }
+
+type talosMachineClient interface {
+	ApplyConfiguration(context.Context, *machineapi.ApplyConfigurationRequest, ...grpc.CallOption) (*machineapi.ApplyConfigurationResponse, error)
+	Close() error
+}
+
+type talosMachineClientFactory func(context.Context, []string, []byte) (talosMachineClient, error)
 
 func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
@@ -142,40 +161,59 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	if statusErr := r.setClaimStatus(
-		ctx,
-		claim,
-		ipamClaimPhaseReady,
-		"AddressAllocated",
-		fmt.Sprintf("allocated address %s", ip),
-	); statusErr != nil {
-		return ctrl.Result{}, statusErr
-	}
-
 	talosConfigRef := machine.Spec.Bootstrap.ConfigRef
 	if !talosConfigRef.IsDefined() || talosConfigRef.Kind != "TalosConfig" {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhaseReady, "AddressAllocated", fmt.Sprintf("allocated address %s", ip)); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+
 		return ctrl.Result{}, nil
 	}
 
 	var talosConfig bootstrapv1.TalosConfig
 	talosConfigKey := types.NamespacedName{Namespace: machine.Namespace, Name: talosConfigRef.Name}
-	if err := r.Get(ctx, talosConfigKey, &talosConfig); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	reader := r.apiReader()
+	if err := reader.Get(ctx, talosConfigKey, &talosConfig); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
+		return ctrl.Result{}, err
 	}
 
 	if talosConfig.Status.DataSecretName == nil {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForBootstrapData", "waiting for Talos bootstrap data to be generated"); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	latestMachine := &clusterv1.Machine{}
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(&machine), latestMachine); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if hasCAPIUpdateInProgress(latestMachine, &talosConfig) {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForCAPIUpdate", "waiting for the Cluster API in-place update to finish"); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	bootstrapDataSecret := &corev1.Secret{}
 	bootstrapDataSecretKey := types.NamespacedName{Namespace: machine.Namespace, Name: *talosConfig.Status.DataSecretName}
-	if err := r.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if err := reader.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
+		return ctrl.Result{}, err
 	}
 
 	bootstrapData, ok := bootstrapDataSecret.Data["value"]
-	if !ok {
-		return ctrl.Result{}, nil
+	if !ok || len(bootstrapData) == 0 {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	desiredAddress := fmt.Sprintf("%s/%d", ip, config.Subnet.Bits())
@@ -184,70 +222,219 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	if !changed {
+	if changed {
+		secretPatch := client.MergeFromWithOptions(bootstrapDataSecret.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		bootstrapDataSecret.Data["value"] = updatedBootstrapData
+
+		if err := r.Patch(ctx, bootstrapDataSecret, secretPatch); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: time.Second}, nil
+			}
+
+			return ctrl.Result{}, err
+		}
+	}
+
+	if !latestMachine.Status.NodeRef.IsDefined() {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhaseReady, "BootstrapConfigurationReady", fmt.Sprintf("address %s is configured in bootstrap data", ip)); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+
 		return ctrl.Result{}, nil
 	}
 
-	secretPatch := client.MergeFrom(bootstrapDataSecret.DeepCopy())
-	bootstrapDataSecret.Data["value"] = updatedBootstrapData
-
-	if err := r.Patch(ctx, bootstrapDataSecret, secretPatch); err != nil {
-		return ctrl.Result{}, err
+	if hasCAPIUpdateInProgress(latestMachine, &talosConfig) {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	if machine.Status.NodeRef.IsDefined() {
-		if err := r.reconcileLatePatchMachine(ctx, &machine, clusterKey.Name, isControlPlane); err != nil {
+	result, err := r.applyInPlaceConfiguration(ctx, latestMachine, &talosConfig, bootstrapDataSecret, claim, updatedBootstrapData, config.Interface, desiredAddress, clusterKey)
+	if err != nil {
+		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhaseFailed, "ConfigurationApplyFailed", err.Error()); statusErr != nil {
+			return ctrl.Result{}, fmt.Errorf("%w (also failed to update IPAM claim status: %v)", err, statusErr)
+		}
+	}
+
+	return result, err
+}
+
+func (r *DockyardsMachineIPReconciler) apiReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+
+	return r.Client
+}
+
+func hasCAPIUpdateInProgress(objects ...metav1.Object) bool {
+	for _, object := range objects {
+		if object == nil {
+			continue
+		}
+
+		annotations := object.GetAnnotations()
+		if _, ok := annotations[clusterv1.UpdateInProgressAnnotation]; ok {
+			return true
+		}
+
+		for _, hook := range strings.Split(annotations[pendingHooksAnnotation], ",") {
+			if strings.TrimSpace(hook) == updateMachineHookName {
+				return true
+			}
+		}
+
+	}
+
+	return false
+}
+
+func (r *DockyardsMachineIPReconciler) applyInPlaceConfiguration(
+	ctx context.Context,
+	machine *clusterv1.Machine,
+	talosConfig *bootstrapv1.TalosConfig,
+	bootstrapSecret *corev1.Secret,
+	claim *dockyardskubevirtv1.DockyardsIPAMClaim,
+	bootstrapData []byte,
+	interfaceName,
+	addressWithPrefix string,
+	clusterKey types.NamespacedName,
+) (ctrl.Result, error) {
+	reader := r.apiReader()
+	latestMachine := &clusterv1.Machine{}
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(machine), latestMachine); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	latestTalosConfig := &bootstrapv1.TalosConfig{}
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(talosConfig), latestTalosConfig); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if hasCAPIUpdateInProgress(latestMachine, latestTalosConfig) {
+		if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForCAPIUpdate", "waiting for the Cluster API in-place update to finish"); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	if !latestMachine.DeletionTimestamp.IsZero() {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	configHash := inPlaceAppliedConfigHash(interfaceName, addressWithPrefix, bootstrapSecret.Annotations[talosInPlaceConfigHashAnnotation], bootstrapData)
+	if claim.Status.AppliedConfigHash == configHash {
+		if err := r.setClaimStatus(ctx, claim, ipamClaimPhaseReady, "ConfigurationApplied", fmt.Sprintf("address %s is applied to the running machine", addressWithPrefix)); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{}, nil
+	}
+
+	endpoints := talosMachineEndpoints(latestMachine)
+	if len(endpoints) == 0 {
+		if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForMachineAddress", "waiting for a Talos API address on the running machine"); err != nil {
 			return ctrl.Result{}, err
 		}
 
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "ApplyingConfiguration", fmt.Sprintf("applying address %s to the running machine", addressWithPrefix)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	talosConfigSecret := &corev1.Secret{}
+	talosConfigSecretKey := types.NamespacedName{Namespace: clusterKey.Namespace, Name: clusterKey.Name + "-talosconfig"}
+	if err := reader.Get(ctx, talosConfigSecretKey, talosConfigSecret); err != nil {
+		return ctrl.Result{}, fmt.Errorf("get talosconfig secret %s/%s: %w", talosConfigSecretKey.Namespace, talosConfigSecretKey.Name, err)
+	}
+	talosConfigData, ok := talosConfigSecret.Data["talosconfig"]
+	if !ok || len(talosConfigData) == 0 {
+		return ctrl.Result{}, fmt.Errorf("talosconfig secret %s/%s has no talosconfig data", talosConfigSecretKey.Namespace, talosConfigSecretKey.Name)
+	}
+
+	factory := r.newTalosClient
+	if factory == nil {
+		factory = newTalosMachineClient
+	}
+	node, err := factory(ctx, endpoints, talosConfigData)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("create Talos API client for machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+	}
+	defer node.Close() // best effort; ApplyConfiguration's result is authoritative
+
+	if _, err := node.ApplyConfiguration(ctx, &machineapi.ApplyConfigurationRequest{
+		Data: bootstrapData,
+		Mode: machineapi.ApplyConfigurationRequest_AUTO,
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("apply in-place Talos configuration to machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+	}
+
+	if err := r.setClaimAppliedConfig(ctx, claim, configHash, addressWithPrefix); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
-func (r *DockyardsMachineIPReconciler) reconcileLatePatchMachine(ctx context.Context, machine *clusterv1.Machine, clusterName string, isControlPlane bool) error {
-	deletingRoleMachine, err := r.hasDeletingMachineInRole(ctx, machine.Namespace, clusterName, isControlPlane, machine.Name)
+func newTalosMachineClient(ctx context.Context, endpoints []string, configData []byte) (talosMachineClient, error) {
+	cfg, err := talosconfig.FromBytes(configData)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("parse talosconfig: %w", err)
 	}
 
-	if deletingRoleMachine {
-		return nil
-	}
-
-	return r.Delete(ctx, machine)
-}
-
-func (r *DockyardsMachineIPReconciler) hasDeletingMachineInRole(ctx context.Context, namespace, clusterName string, isControlPlane bool, exceptName string) (bool, error) {
-	var machineList clusterv1.MachineList
-
-	err := r.List(
-		ctx,
-		&machineList,
-		client.InNamespace(namespace),
-		client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName},
+	client, err := talosclient.New(ctx,
+		talosclient.WithDefaultGRPCDialOptions(),
+		talosclient.WithEndpoints(endpoints...),
+		talosclient.WithConfig(cfg),
 	)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
-	for i := range machineList.Items {
-		m := &machineList.Items[i]
-		if m.Name == exceptName {
+	return &talosMachineClientAdapter{client: client}, nil
+}
+
+type talosMachineClientAdapter struct {
+	client *talosclient.Client
+}
+
+func (c *talosMachineClientAdapter) ApplyConfiguration(ctx context.Context, request *machineapi.ApplyConfigurationRequest, options ...grpc.CallOption) (*machineapi.ApplyConfigurationResponse, error) {
+	return c.client.ApplyConfiguration(ctx, request, options...)
+}
+
+func (c *talosMachineClientAdapter) Close() error {
+	return c.client.Close()
+}
+
+func talosMachineEndpoints(machine *clusterv1.Machine) []string {
+	seen := make(map[string]struct{}, len(machine.Status.Addresses))
+	endpoints := make([]string, 0, len(machine.Status.Addresses))
+	for _, address := range machine.Status.Addresses {
+		if address.Type != clusterv1.MachineInternalIP && address.Type != clusterv1.MachineExternalIP {
 			continue
 		}
 
-		if m.DeletionTimestamp.IsZero() {
+		parsed, err := netip.ParseAddr(strings.TrimSpace(address.Address))
+		if err != nil {
 			continue
 		}
 
-		if machineIsControlPlane(m) == isControlPlane {
-			return true, nil
+		endpoint := parsed.String()
+		if _, ok := seen[endpoint]; ok {
+			continue
 		}
+
+		seen[endpoint] = struct{}{}
+		endpoints = append(endpoints, endpoint)
 	}
 
-	return false, nil
+	return endpoints
+}
+
+func inPlaceAppliedConfigHash(interfaceName, addressWithPrefix, sourceConfigHash string, bootstrapData []byte) string {
+	input := []byte(interfaceName + "\x00" + addressWithPrefix + "\x00" + sourceConfigHash + "\x00")
+	input = append(input, bootstrapData...)
+	hash := sha256.Sum256(input)
+
+	return fmt.Sprintf("%x", hash)
 }
 
 func (r *DockyardsMachineIPReconciler) getExternalNodeConfig(cluster *dockyardsv1.Cluster) (*externalNodeConfig, error) {
@@ -448,8 +635,6 @@ func (r *DockyardsMachineIPReconciler) setClaimStatus(
 	reason,
 	message string,
 ) error {
-	patch := client.MergeFrom(claim.DeepCopy())
-
 	if claim.Status.Phase == phase &&
 		claim.Status.Reason == reason &&
 		claim.Status.Message == message &&
@@ -457,12 +642,24 @@ func (r *DockyardsMachineIPReconciler) setClaimStatus(
 		return nil
 	}
 
+	claimPatch := client.MergeFrom(claim.DeepCopy())
 	claim.Status.Phase = phase
 	claim.Status.Reason = reason
 	claim.Status.Message = message
 	claim.Status.ObservedGeneration = claim.Generation
 
-	return r.Status().Patch(ctx, claim, patch)
+	return r.Status().Patch(ctx, claim, claimPatch)
+}
+
+func (r *DockyardsMachineIPReconciler) setClaimAppliedConfig(ctx context.Context, claim *dockyardskubevirtv1.DockyardsIPAMClaim, hash, addressWithPrefix string) error {
+	claimPatch := client.MergeFromWithOptions(claim.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	claim.Status.Phase = ipamClaimPhaseReady
+	claim.Status.Reason = "ConfigurationApplied"
+	claim.Status.Message = fmt.Sprintf("address %s is applied to the running machine", addressWithPrefix)
+	claim.Status.ObservedGeneration = claim.Generation
+	claim.Status.AppliedConfigHash = hash
+
+	return r.Status().Patch(ctx, claim, claimPatch)
 }
 
 func (r *DockyardsMachineIPReconciler) allocateClaimAddress(

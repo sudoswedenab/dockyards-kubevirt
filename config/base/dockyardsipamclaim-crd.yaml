@@ -99,5 +99,7 @@ spec:
                   by the controller.
                 type: integer
                 format: int64
+              appliedConfigHash:
+                type: string
     subresources:
       status: {}
