@@ -1024,8 +1024,8 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 
 func marshalAuthenticationConfig(authenticationConfig *apiserverv1.AuthenticationConfiguration) ([]byte, error) {
 	config := *authenticationConfig
-	config.TypeMeta.APIVersion = "apiserver.config.k8s.io/v1"
-	config.TypeMeta.Kind = "AuthenticationConfiguration"
+	config.APIVersion = "apiserver.config.k8s.io/v1"
+	config.Kind = "AuthenticationConfiguration"
 
 	jsonData, err := json.Marshal(&config)
 	if err != nil {
