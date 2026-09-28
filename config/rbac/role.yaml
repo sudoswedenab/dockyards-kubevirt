@@ -212,6 +212,15 @@ rules:
 - apiGroups:
   - dockyards.io
   resources:
+  - virtualmachine
+  verbs:
+  - create
+  - get
+  - patch
+  - update
+- apiGroups:
+  - dockyards.io
+  resources:
   - workloads
   verbs:
   - create
@@ -302,6 +311,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachine
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
