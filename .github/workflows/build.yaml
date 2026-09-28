@@ -18,8 +18,8 @@ on:
     branches:
       - feat/*
       - fix/*
-      - main/*
       - refactor/*
+      - main
     paths:
       - '**/*.go'
       - go.mod
