@@ -141,6 +141,15 @@ func main() {
 		Namespace: ptr.To(gatewayapiv1.Namespace(gatewayNamespace)),
 	}
 
+	err = (&controllers.KubevirtVirtualMachineReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr)
+	if err != nil {
+		slogr.Error(err, "error creating kubevirt virtualmachine reconciler")
+
+		os.Exit(1)
+	}
+
 	err = (&controllers.DockyardsNodePoolReconciler{
 		Client:                               mgr.GetClient(),
 		TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
