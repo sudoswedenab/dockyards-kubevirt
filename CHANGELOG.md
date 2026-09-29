@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.2...v0.2.3) (2026-09-29)
+
+
+### Features
+
+* proxy kubevirt virtualmachine status to dockyards virtualmachine ([9704490](https://github.com/sudoswedenab/dockyards-kubevirt/commit/970449072affdf212d3d0cb5383b8009c3b454e5))
+
 ## [0.2.2](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.1...v0.2.2) (2026-09-16)
 
 
