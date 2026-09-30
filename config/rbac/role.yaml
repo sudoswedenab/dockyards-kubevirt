@@ -212,7 +212,7 @@ rules:
 - apiGroups:
   - dockyards.io
   resources:
-  - virtualmachine
+  - virtualmachineinstances
   verbs:
   - create
   - get
@@ -314,7 +314,7 @@ rules:
 - apiGroups:
   - kubevirt.io
   resources:
-  - virtualmachine
+  - virtualmachines
   verbs:
   - get
   - list

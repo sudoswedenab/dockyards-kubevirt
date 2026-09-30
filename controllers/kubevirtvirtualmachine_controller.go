@@ -25,8 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachine,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachine,verbs=create;get;patch;update
+// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances,verbs=create;get;patch;update
 
 type KubevirtVirtualMachineReconciler struct {
 	client.Client
