@@ -17,17 +17,18 @@ package controllers
 import (
 	"context"
 
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances,verbs=create;get;list;watch;watchlist;patch;update
-// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances/status,verbs=patch
+// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances/status,verbs=patch;update
 
 type KubevirtVirtualMachineReconciler struct {
 	client.Client
@@ -66,22 +67,36 @@ func (r *KubevirtVirtualMachineReconciler) reconcileDockyardsVirtualMachine(ctx 
 		}
 		vmi.Labels[dockyardsv1.LabelProviderName] = "kubevirt"
 		vmi.Labels[dockyardsv1.LabelVirtualMachineName] = vm.Name
-		vmi.Status.Created = vm.Status.Created
-		vmi.Status.Ready = vm.Status.Ready
-		vmi.Status.PrintableStatus = string(vm.Status.PrintableStatus)
-		vmi.Status.Conditions = make([]metav1.Condition, 0, len(vm.Status.Conditions))
-		for _, cond := range vm.Status.Conditions {
-			c := metav1.Condition{
-				Type: string(cond.Type),
-				Status: metav1.ConditionStatus(cond.Status),
-				LastTransitionTime: cond.LastTransitionTime,
-				Reason: cond.Reason,
-				Message: cond.Message,
-			}
-			vmi.Status.Conditions = append(vmi.Status.Conditions, c)
-		}
 		return nil
 	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	vmi.Status.Created = vm.Status.Created
+	vmi.Status.Ready = vm.Status.Ready
+	vmi.Status.PrintableStatus = string(vm.Status.PrintableStatus)
+	vmi.Status.Conditions = make([]metav1.Condition, 0, len(vm.Status.Conditions))
+	for _, cond := range vm.Status.Conditions {
+		c := metav1.Condition{
+			Type: string(cond.Type),
+			Status: metav1.ConditionStatus(cond.Status),
+			LastTransitionTime: cond.LastTransitionTime,
+			Reason: cond.Reason,
+			Message: cond.Message,
+		}
+		if c.Reason == "" {
+			c.Reason = "Unknown"
+		}
+		if c.LastTransitionTime.IsZero() {
+			c.LastTransitionTime = metav1.Now()
+		}
+		vmi.Status.Conditions = append(vmi.Status.Conditions, c)
+	}
+	err = r.Status().Update(ctx, &vmi)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, err
 }

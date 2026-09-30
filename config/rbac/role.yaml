@@ -227,6 +227,7 @@ rules:
   - virtualmachineinstances/status
   verbs:
   - patch
+  - update
 - apiGroups:
   - dockyards.io
   resources:
@@ -324,6 +325,14 @@ rules:
   - kubevirt.io
   resources:
   - virtualmachines
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachines/status
   verbs:
   - get
   - list
