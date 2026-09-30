@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.4](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.3...v0.2.4) (2026-09-30)
+
+
+### Bug Fixes
+
+* ensure that we can watch and list dockyards virtualmachines ([bad498c](https://github.com/sudoswedenab/dockyards-kubevirt/commit/bad498ca5ae7a04a4dff06e9fce84184b671e50e))
+* missing virtualmachineinstances/status rbac ([7baceca](https://github.com/sudoswedenab/dockyards-kubevirt/commit/7bacecab0ad7e5ee2d0e7518842770a1b7f842c6))
+* stale use of name virtualmachine where virtualmachineinstances should have been used ([d2a6951](https://github.com/sudoswedenab/dockyards-kubevirt/commit/d2a695149c0e42b58806c366ecd6f94f09aa322a))
+* update status field of virtualmachineinstance after creating it ([61e1b6d](https://github.com/sudoswedenab/dockyards-kubevirt/commit/61e1b6da284be563add5e1f378b57a9f6b61aad8))
+
 ## [0.2.3](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.2...v0.2.3) (2026-09-29)
 
 
