@@ -26,7 +26,8 @@ import (
 )
 
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances,verbs=create;get;list;watch;patch;update
+// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances,verbs=create;get;list;watch;watchlist;patch;update
+// +kubebuilder:rbac:groups=dockyards.io,resources=virtualmachineinstances/status,verbs=patch
 
 type KubevirtVirtualMachineReconciler struct {
 	client.Client

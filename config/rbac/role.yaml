@@ -220,6 +220,13 @@ rules:
   - patch
   - update
   - watch
+  - watchlist
+- apiGroups:
+  - dockyards.io
+  resources:
+  - virtualmachineinstances/status
+  verbs:
+  - patch
 - apiGroups:
   - dockyards.io
   resources:
