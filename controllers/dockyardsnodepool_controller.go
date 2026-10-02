@@ -49,7 +49,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	sigsyaml "sigs.k8s.io/yaml"
 
 	talospatchv1 "github.com/sudoswedenab/dockyards-kubevirt/internal/talospatch/v1alpha1"
 )
@@ -814,7 +813,7 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(dockyards
 	}
 
 	patch := r.labelConfigPatch(labels)
-	err := strategicPatches.Add(new(patch))
+	err := strategicPatches.Add(&patch)
 	if err != nil {
 		return fmt.Errorf("could not add node labels strategic patch: %w", err)
 	}
@@ -851,7 +850,7 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(dockyards
 	}
 
 	patch := r.taintConfigPatch(taints)
-	err := strategicPatches.Add(new(patch))
+	err := strategicPatches.Add(&patch)
 	if err != nil {
 		return fmt.Errorf("could not add node taints strategic patch: %w", err)
 	}
@@ -1032,7 +1031,13 @@ func marshalAuthenticationConfig(authenticationConfig *apiserverv1.Authenticatio
 		return nil, err
 	}
 
-	return sigsyaml.JSONToYAML(jsonData)
+	var document map[string]any
+	err = yaml.Unmarshal(jsonData, &document)
+	if err != nil {
+		return nil, err
+	}
+
+	return yaml.Marshal(document)
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {

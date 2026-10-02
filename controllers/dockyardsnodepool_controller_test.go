@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -52,7 +53,20 @@ import (
 )
 
 func TestMarshalAuthenticationConfigUsesTopLevelTypeMeta(t *testing.T) {
-	config := &apiserverv1.AuthenticationConfiguration{}
+	prefix := "oidc:"
+	config := &apiserverv1.AuthenticationConfiguration{
+		JWT: []apiserverv1.JWTAuthenticator{{
+			Issuer: apiserverv1.Issuer{
+				Audiences:            []string{"otaddev"},
+				CertificateAuthority: "-----BEGIN CERTIFICATE-----\ncertificate\n-----END CERTIFICATE-----\n",
+				URL:                  "https://issuer.example.test",
+			},
+			ClaimMappings: apiserverv1.ClaimMappings{
+				Groups:   apiserverv1.PrefixedClaimOrExpression{Claim: "groups", Prefix: &prefix},
+				Username: apiserverv1.PrefixedClaimOrExpression{Claim: "email", Prefix: &prefix},
+			},
+		}},
+	}
 
 	content, err := marshalAuthenticationConfig(config)
 	if err != nil {
@@ -76,6 +90,36 @@ func TestMarshalAuthenticationConfigUsesTopLevelTypeMeta(t *testing.T) {
 
 	if _, err := json.Marshal(decoded); err != nil {
 		t.Fatalf("generated YAML is not JSON-compatible: %v", err)
+	}
+
+	text := string(content)
+	for _, want := range []string{
+		"jwt:\n    - claimMappings:",
+		"audiences:\n            - otaddev",
+		"certificateAuthority: |\n            -----BEGIN CERTIFICATE-----",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated YAML missing expected formatting %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestNodePoolConfigPatchHelpers(t *testing.T) {
+	nodePool := &dockyardsv1.NodePool{}
+	strategicPatches := StrategicPatches{}
+
+	nodePool.Spec.NodeLabels = map[string]string{"role": "control-plane"}
+	if err := (&DockyardsNodePoolReconciler{}).addNodePoolNodeLabelsConfigPatch(nodePool, &strategicPatches); err != nil {
+		t.Fatalf("addNodePoolNodeLabelsConfigPatch returned error: %v", err)
+	}
+
+	nodePool.Spec.NodeTaints = map[string]string{"dedicated": "control-plane:NoSchedule"}
+	if err := (&DockyardsNodePoolReconciler{}).addNodePoolNodeTaintsConfigPatch(nodePool, &strategicPatches); err != nil {
+		t.Fatalf("addNodePoolNodeTaintsConfigPatch returned error: %v", err)
+	}
+
+	if got, want := len(strategicPatches), 2; got != want {
+		t.Fatalf("unexpected strategic patch count: got %d, want %d", got, want)
 	}
 }
 
