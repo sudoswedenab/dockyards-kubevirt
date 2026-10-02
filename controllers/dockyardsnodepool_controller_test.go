@@ -16,8 +16,10 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -36,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
@@ -46,7 +49,79 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	sigsyaml "sigs.k8s.io/yaml"
 )
+
+func TestMarshalAuthenticationConfigUsesTopLevelTypeMeta(t *testing.T) {
+	prefix := "oidc:"
+	config := &apiserverv1.AuthenticationConfiguration{
+		JWT: []apiserverv1.JWTAuthenticator{{
+			Issuer: apiserverv1.Issuer{
+				Audiences:            []string{"otaddev"},
+				CertificateAuthority: "-----BEGIN CERTIFICATE-----\ncertificate\n-----END CERTIFICATE-----\n",
+				URL:                  "https://issuer.example.test",
+			},
+			ClaimMappings: apiserverv1.ClaimMappings{
+				Groups:   apiserverv1.PrefixedClaimOrExpression{Claim: "groups", Prefix: &prefix},
+				Username: apiserverv1.PrefixedClaimOrExpression{Claim: "email", Prefix: &prefix},
+			},
+		}},
+	}
+
+	content, err := marshalAuthenticationConfig(config)
+	if err != nil {
+		t.Fatalf("marshalAuthenticationConfig returned error: %v", err)
+	}
+
+	decoded := map[string]any{}
+	if err := sigsyaml.Unmarshal(content, &decoded); err != nil {
+		t.Fatalf("unmarshal generated YAML: %v", err)
+	}
+
+	if got, want := decoded["apiVersion"], "apiserver.config.k8s.io/v1"; got != want {
+		t.Fatalf("unexpected apiVersion: got %v, want %v", got, want)
+	}
+	if got, want := decoded["kind"], "AuthenticationConfiguration"; got != want {
+		t.Fatalf("unexpected kind: got %v, want %v", got, want)
+	}
+	if _, found := decoded["typemeta"]; found {
+		t.Fatal("generated YAML must not contain nested typemeta")
+	}
+
+	if _, err := json.Marshal(decoded); err != nil {
+		t.Fatalf("generated YAML is not JSON-compatible: %v", err)
+	}
+
+	text := string(content)
+	for _, want := range []string{
+		"jwt:\n    - claimMappings:",
+		"audiences:\n            - otaddev",
+		"certificateAuthority: |\n            -----BEGIN CERTIFICATE-----",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated YAML missing expected formatting %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestNodePoolConfigPatchHelpers(t *testing.T) {
+	nodePool := &dockyardsv1.NodePool{}
+	strategicPatches := StrategicPatches{}
+
+	nodePool.Spec.NodeLabels = map[string]string{"role": "control-plane"}
+	if err := (&DockyardsNodePoolReconciler{}).addNodePoolNodeLabelsConfigPatch(nodePool, &strategicPatches); err != nil {
+		t.Fatalf("addNodePoolNodeLabelsConfigPatch returned error: %v", err)
+	}
+
+	nodePool.Spec.NodeTaints = map[string]string{"dedicated": "control-plane:NoSchedule"}
+	if err := (&DockyardsNodePoolReconciler{}).addNodePoolNodeTaintsConfigPatch(nodePool, &strategicPatches); err != nil {
+		t.Fatalf("addNodePoolNodeTaintsConfigPatch returned error: %v", err)
+	}
+
+	if got, want := len(strategicPatches), 2; got != want {
+		t.Fatalf("unexpected strategic patch count: got %d, want %d", got, want)
+	}
+}
 
 func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -1502,8 +1577,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-						GenerateType: "controlplane",
-						TalosVersion: "v1.12",
+						GenerateType:     "controlplane",
+						TalosVersion:     "v1.12",
 						StrategicPatches: []string{string(configPatch)},
 					},
 				},

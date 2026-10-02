@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
@@ -811,7 +813,7 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeLabelsConfigPatch(dockyards
 	}
 
 	patch := r.labelConfigPatch(labels)
-	err := strategicPatches.Add(new(patch))
+	err := strategicPatches.Add(&patch)
 	if err != nil {
 		return fmt.Errorf("could not add node labels strategic patch: %w", err)
 	}
@@ -848,7 +850,7 @@ func (r *DockyardsNodePoolReconciler) addNodePoolNodeTaintsConfigPatch(dockyards
 	}
 
 	patch := r.taintConfigPatch(taints)
-	err := strategicPatches.Add(new(patch))
+	err := strategicPatches.Add(&patch)
 	if err != nil {
 		return fmt.Errorf("could not add node taints strategic patch: %w", err)
 	}
@@ -933,7 +935,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	// Authentication configuration
 	authenticationConfig := dockyardsCluster.Spec.AuthenticationConfig
 	if authenticationConfig != nil {
-		content, err := yaml.Marshal(authenticationConfig)
+		content, err := marshalAuthenticationConfig(authenticationConfig)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("could not marshal authentication config: %w", err)
 		}
@@ -1017,6 +1019,25 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	conditions.MarkTrue(dockyardsNodePool, TalosControlPlaneReconciledCondition, ReconciledReason, "")
 
 	return ctrl.Result{}, nil
+}
+
+func marshalAuthenticationConfig(authenticationConfig *apiserverv1.AuthenticationConfiguration) ([]byte, error) {
+	config := *authenticationConfig
+	config.APIVersion = "apiserver.config.k8s.io/v1"
+	config.Kind = "AuthenticationConfiguration"
+
+	jsonData, err := json.Marshal(&config)
+	if err != nil {
+		return nil, err
+	}
+
+	var document map[string]any
+	err = yaml.Unmarshal(jsonData, &document)
+	if err != nil {
+		return nil, err
+	}
+
+	return yaml.Marshal(document)
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
