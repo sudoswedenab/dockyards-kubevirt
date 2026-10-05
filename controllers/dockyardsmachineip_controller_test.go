@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
@@ -346,7 +347,7 @@ addresses:
   - address: 10.71.22.172/27
 `)
 
-	updated, changed, err := upsertLinkConfigInBootstrapData(bootstrapData, "eth1", "10.71.22.173/27")
+	updated, changed, err := upsertLinkConfigInMachineConfig(bootstrapData, "eth1", "10.71.22.173/27")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -382,14 +383,19 @@ addresses:
 }
 
 type fakeTalosMachineClient struct {
-	requests []*machineapi.ApplyConfigurationRequest
-	err      error
-	closed   bool
+	activeConfig []byte
+	requests     []*machineapi.ApplyConfigurationRequest
+	err          error
+	closed       bool
 }
 
 func (c *fakeTalosMachineClient) ApplyConfiguration(_ context.Context, request *machineapi.ApplyConfigurationRequest, _ ...grpc.CallOption) (*machineapi.ApplyConfigurationResponse, error) {
 	c.requests = append(c.requests, &machineapi.ApplyConfigurationRequest{Data: append([]byte(nil), request.Data...), Mode: request.Mode})
 	return &machineapi.ApplyConfigurationResponse{}, c.err
+}
+
+func (c *fakeTalosMachineClient) ActiveMachineConfiguration(context.Context) ([]byte, error) {
+	return append([]byte(nil), c.activeConfig...), nil
 }
 
 func (c *fakeTalosMachineClient) Close() error {
@@ -412,7 +418,7 @@ func newInPlaceConfigFixture(t *testing.T, objects ...client.Object) (*Dockyards
 		}
 	}
 
-	apiClient := &fakeTalosMachineClient{}
+	apiClient := &fakeTalosMachineClient{activeConfig: []byte("version: v1alpha1\n")}
 	client := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&dockyardskubevirtv1.DockyardsIPAMClaim{}).
@@ -438,7 +444,7 @@ func newInPlaceConfigFixture(t *testing.T, objects ...client.Object) (*Dockyards
 	}, apiClient
 }
 
-func TestApplyInPlaceConfigurationUsesAutoAndStoresHash(t *testing.T) {
+func TestApplyInPlaceConfigurationUsesNoRebootAndStoresHash(t *testing.T) {
 	t.Parallel()
 
 	machine := &clusterv1.Machine{
@@ -480,11 +486,11 @@ func TestApplyInPlaceConfigurationUsesAutoAndStoresHash(t *testing.T) {
 	if len(apiClient.requests) != 1 {
 		t.Fatalf("expected one Talos apply call, got %d", len(apiClient.requests))
 	}
-	if apiClient.requests[0].Mode != machineapi.ApplyConfigurationRequest_AUTO {
-		t.Fatalf("expected AUTO apply mode, got %s", apiClient.requests[0].Mode)
+	if apiClient.requests[0].Mode != machineapi.ApplyConfigurationRequest_NO_REBOOT {
+		t.Fatalf("expected NO_REBOOT apply mode, got %s", apiClient.requests[0].Mode)
 	}
-	if !reflect.DeepEqual(apiClient.requests[0].Data, bootstrapSecret.Data["value"]) {
-		t.Fatal("expected the latest bootstrap data to be applied")
+	if !strings.Contains(string(apiClient.requests[0].Data), "address: 10.71.22.171/27") {
+		t.Fatalf("expected updated address in applied configuration: %s", apiClient.requests[0].Data)
 	}
 
 	storedClaim := &dockyardskubevirtv1.DockyardsIPAMClaim{}
@@ -587,6 +593,53 @@ func TestApplyInPlaceConfigurationIsIdempotent(t *testing.T) {
 	}
 	if len(apiClient.requests) != 0 {
 		t.Fatal("expected successful prior apply to be skipped")
+	}
+}
+
+func TestUpsertLinkConfigInMachineConfigPreservesRoutesAndDocuments(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`version: v1alpha1
+machine: {}
+---
+apiVersion: v1alpha1
+kind: LinkConfig
+name: eth0
+routes:
+  - destination: 83.255.255.26/32
+    gateway: 100.66.2.1
+---
+apiVersion: v1alpha1
+kind: LinkConfig
+name: eth1
+routes:
+  - destination: 10.71.22.90/32
+    gateway: 100.66.2.1
+  - gateway: 10.71.22.161
+addresses:
+  - address: 10.71.22.172/27
+---
+apiVersion: v1alpha1
+kind: AuthenticationConfiguration
+anonymous: null
+`)
+
+	updated, changed, err := upsertLinkConfigInMachineConfig(data, "eth1", "10.71.22.173/27")
+	if err != nil {
+		t.Fatalf("upsertLinkConfigInMachineConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected configuration to change")
+	}
+
+	if !strings.Contains(string(updated), "83.255.255.26/32") ||
+		!strings.Contains(string(updated), "10.71.22.90/32") ||
+		!strings.Contains(string(updated), "gateway: 10.71.22.161") ||
+		!strings.Contains(string(updated), "kind: AuthenticationConfiguration") {
+		t.Fatalf("updated configuration lost existing content:\n%s", updated)
+	}
+	if strings.Contains(string(updated), "address: 10.71.22.172/27") {
+		t.Fatalf("old address was not replaced:\n%s", updated)
 	}
 }
 
