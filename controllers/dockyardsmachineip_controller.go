@@ -26,11 +26,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cosi-project/runtime/pkg/resource"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
+	configres "github.com/siderolabs/talos/pkg/machinery/resources/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v3"
@@ -83,6 +85,7 @@ type DockyardsMachineIPReconciler struct {
 
 type talosMachineClient interface {
 	ApplyConfiguration(context.Context, *machineapi.ApplyConfigurationRequest, ...grpc.CallOption) (*machineapi.ApplyConfigurationResponse, error)
+	ActiveMachineConfiguration(context.Context) ([]byte, error)
 	Close() error
 }
 
@@ -217,7 +220,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	desiredAddress := fmt.Sprintf("%s/%d", ip, config.Subnet.Bits())
-	updatedBootstrapData, changed, err := upsertLinkConfigInBootstrapData(bootstrapData, config.Interface, desiredAddress)
+	updatedBootstrapData, changed, err := upsertLinkConfigInMachineConfig(bootstrapData, config.Interface, desiredAddress)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -360,11 +363,23 @@ func (r *DockyardsMachineIPReconciler) applyInPlaceConfiguration(
 	}
 	defer node.Close() // best effort; ApplyConfiguration's result is authoritative
 
-	if _, err := node.ApplyConfiguration(ctx, &machineapi.ApplyConfigurationRequest{
-		Data: bootstrapData,
-		Mode: machineapi.ApplyConfigurationRequest_AUTO,
-	}); err != nil {
-		return ctrl.Result{}, fmt.Errorf("apply in-place Talos configuration to machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+	activeConfig, err := node.ActiveMachineConfiguration(ctx)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("read active Talos configuration from machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+	}
+
+	updatedActiveConfig, changed, err := upsertLinkConfigInMachineConfig(activeConfig, interfaceName, addressWithPrefix)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("update active Talos LinkConfig for machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+	}
+
+	if changed {
+		if _, err := node.ApplyConfiguration(ctx, &machineapi.ApplyConfigurationRequest{
+			Data: updatedActiveConfig,
+			Mode: machineapi.ApplyConfigurationRequest_NO_REBOOT,
+		}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("apply in-place Talos configuration to machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+		}
 	}
 
 	if err := r.setClaimAppliedConfig(ctx, claim, configHash, addressWithPrefix); err != nil {
@@ -398,6 +413,30 @@ type talosMachineClientAdapter struct {
 
 func (c *talosMachineClientAdapter) ApplyConfiguration(ctx context.Context, request *machineapi.ApplyConfigurationRequest, options ...grpc.CallOption) (*machineapi.ApplyConfigurationResponse, error) {
 	return c.client.ApplyConfiguration(ctx, request, options...)
+}
+
+func (c *talosMachineClientAdapter) ActiveMachineConfiguration(ctx context.Context) ([]byte, error) {
+	active, err := c.client.COSI.Get(ctx, resource.NewMetadata(
+		configres.NamespaceName,
+		configres.MachineConfigType,
+		configres.ActiveID,
+		resource.VersionUndefined,
+	))
+	if err != nil {
+		return nil, err
+	}
+
+	machineConfig, ok := active.(*configres.MachineConfig)
+	if !ok {
+		return nil, fmt.Errorf("unexpected active machine configuration type %T", active)
+	}
+
+	data, err := machineConfig.Provider().Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func (c *talosMachineClientAdapter) Close() error {
@@ -930,7 +969,7 @@ func upsertLinkConfigPatch(patches []string, interfaceName, addressWithPrefix st
 	return updated, true, nil
 }
 
-func upsertLinkConfigInBootstrapData(data []byte, interfaceName, addressWithPrefix string) ([]byte, bool, error) {
+func upsertLinkConfigInMachineConfig(data []byte, interfaceName, addressWithPrefix string) ([]byte, bool, error) {
 	documents, err := decodeYAMLDocuments(data)
 	if err != nil {
 		return nil, false, err
