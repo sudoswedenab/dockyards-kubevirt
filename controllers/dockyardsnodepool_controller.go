@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -77,6 +78,7 @@ type DockyardsNodePoolReconciler struct {
 	EnableMultus                         bool
 	ValidNodeIPSubnets                   []string
 	UseBlockStorage                      bool
+	EnableInPlaceUpdates                 bool
 	DockyardsConfig                      *dyconfig.ConfigManager
 	NetworkInterfaceMultiQueue           bool
 }
@@ -1135,6 +1137,8 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 			Name:     dockyardsNodePool.Name,
 		}
 
+		setMachineDeploymentRolloutStrategy(&machineDeployment, r.EnableInPlaceUpdates)
+
 		return nil
 	})
 	if err != nil {
@@ -1148,6 +1152,23 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func setMachineDeploymentRolloutStrategy(machineDeployment *clusterv1.MachineDeployment, enableInPlaceUpdates bool) {
+	maxSurge := intstr.FromInt32(1)
+	maxUnavailable := intstr.FromInt32(0)
+	if enableInPlaceUpdates {
+		maxSurge = intstr.FromInt32(0)
+		maxUnavailable = intstr.FromInt32(1)
+	}
+
+	machineDeployment.Spec.Rollout.Strategy = clusterv1.MachineDeploymentRolloutStrategy{
+		Type: clusterv1.RollingUpdateMachineDeploymentStrategyType,
+		RollingUpdate: clusterv1.MachineDeploymentRolloutStrategyRollingUpdate{
+			MaxSurge:       ptr.To(maxSurge),
+			MaxUnavailable: ptr.To(maxUnavailable),
+		},
+	}
 }
 
 func (r *DockyardsNodePoolReconciler) dockyardsClusterToDockyardsNodePools(ctx context.Context, obj client.Object) []ctrl.Request {

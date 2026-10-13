@@ -152,7 +152,11 @@ Notes:
 
 #### External node IP configuration on running machines
 
-When a CAPI Machine is already running and its generated Talos bootstrap configuration is missing its allocated external IP, the machine IP controller patches the bootstrap Secret and applies the resulting configuration directly through the Talos API in `AUTO` mode. It waits while a CAPI in-place update is active, then applies the latest Secret contents; Talos decides if a reboot is required. Successfully applied addresses are recorded on the IPAM claim so retries do not repeatedly apply the same configuration.
+When a CAPI Machine is already running and its generated Talos bootstrap configuration is missing its allocated external IP, the machine IP controller patches the bootstrap Secret and updates only the address in the active Talos configuration. Existing routes and other machine configuration documents are preserved. Successfully applied addresses are recorded on the IPAM claim so retries do not repeatedly apply the same configuration.
+
+#### Worker in-place update rollout budget
+
+The `--enable-in-place-updates` controller flag configures worker MachineDeployments to use `maxSurge: 0` and `maxUnavailable: 1`, allowing Cluster API to update existing eligible Machines in place without first creating a temporary surge Machine. When disabled (the binary default), the controller restores the standard rollout budget of `maxSurge: 1` and `maxUnavailable: 0`. CAPI's `InPlaceUpdates` and `RuntimeSDK` feature gates and the CABPT runtime extension must also be enabled; unsupported changes can still require replacement.
 
 #### Per-cluster network interface multiqueue
 

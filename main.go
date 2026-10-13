@@ -51,6 +51,7 @@ func main() {
 	var validNodeIPSubnets []string
 	var enableWorkloadIngress bool
 	var useBlockStorage bool
+	var enableInPlaceUpdates bool
 	var talosClusterDiscoveryServiceEndpoint string
 	var networkInterfaceMultiqueue bool
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
@@ -61,6 +62,7 @@ func main() {
 	pflag.StringVar(&dataVolumeStorageClassName, "data-volume-storage-class-name", "rook-ceph-block", "data volume storage class name")
 	pflag.BoolVar(&enableMultus, "enable-multus", false, "enable multus (experimental)")
 	pflag.BoolVar(&useBlockStorage, "use-block-storage", true, "use block storage")
+	pflag.BoolVar(&enableInPlaceUpdates, "enable-in-place-updates", false, "configure worker MachineDeployment rollout budgets for Cluster API in-place updates")
 	pflag.StringSliceVar(&validNodeIPSubnets, "valid-node-ip-subnets", []string{}, "valid node IP subnets")
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
@@ -147,6 +149,7 @@ func main() {
 		DataVolumeStorageClassName:           &dataVolumeStorageClassName,
 		EnableMultus:                         enableMultus,
 		UseBlockStorage:                      useBlockStorage,
+		EnableInPlaceUpdates:                 enableInPlaceUpdates,
 		ValidNodeIPSubnets:                   validNodeIPSubnets,
 		DockyardsConfig:                      dockyardsConfig,
 		NetworkInterfaceMultiQueue:           networkInterfaceMultiqueue,

@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -38,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -120,6 +122,42 @@ func TestNodePoolConfigPatchHelpers(t *testing.T) {
 
 	if got, want := len(strategicPatches), 2; got != want {
 		t.Fatalf("unexpected strategic patch count: got %d, want %d", got, want)
+	}
+}
+
+func TestSetMachineDeploymentRolloutStrategy(t *testing.T) {
+	t.Parallel()
+
+	rolloutAfter := metav1.NewTime(time.Date(2026, time.October, 6, 12, 0, 0, 0, time.UTC))
+	md := &clusterv1.MachineDeployment{
+		Spec: clusterv1.MachineDeploymentSpec{
+			Rollout: clusterv1.MachineDeploymentRolloutSpec{After: rolloutAfter},
+		},
+	}
+
+	setMachineDeploymentRolloutStrategy(md, true)
+	if got, want := md.Spec.Rollout.Strategy.Type, clusterv1.RollingUpdateMachineDeploymentStrategyType; got != want {
+		t.Fatalf("unexpected enabled rollout strategy type: got %q, want %q", got, want)
+	}
+	if got, want := md.Spec.Rollout.Strategy.RollingUpdate.MaxSurge, ptr.To(intstr.FromInt32(0)); got == nil || *got != *want {
+		t.Fatalf("unexpected enabled maxSurge: got %v, want %v", got, want)
+	}
+	if got, want := md.Spec.Rollout.Strategy.RollingUpdate.MaxUnavailable, ptr.To(intstr.FromInt32(1)); got == nil || *got != *want {
+		t.Fatalf("unexpected enabled maxUnavailable: got %v, want %v", got, want)
+	}
+	if !md.Spec.Rollout.After.Equal(&rolloutAfter) {
+		t.Fatal("setting rollout strategy changed rollout.after")
+	}
+
+	setMachineDeploymentRolloutStrategy(md, false)
+	if got, want := md.Spec.Rollout.Strategy.RollingUpdate.MaxSurge, ptr.To(intstr.FromInt32(1)); got == nil || *got != *want {
+		t.Fatalf("unexpected default maxSurge: got %v, want %v", got, want)
+	}
+	if got, want := md.Spec.Rollout.Strategy.RollingUpdate.MaxUnavailable, ptr.To(intstr.FromInt32(0)); got == nil || *got != *want {
+		t.Fatalf("unexpected default maxUnavailable: got %v, want %v", got, want)
+	}
+	if !md.Spec.Rollout.After.Equal(&rolloutAfter) {
+		t.Fatal("restoring default rollout strategy changed rollout.after")
 	}
 }
 
