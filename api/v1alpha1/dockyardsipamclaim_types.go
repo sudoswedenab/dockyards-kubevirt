@@ -19,17 +19,23 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// DockyardsIPAMClaimSpec defines desired state of DockyardsIPAMClaim.
+// DockyardsIPAMClaimSpec defines the requested network allocation for a machine interface.
 type DockyardsIPAMClaimSpec struct {
-	ClusterName  string `json:"clusterName"`
-	MachineName  string `json:"machineName"`
-	Interface    string `json:"interface"`
-	Subnet       string `json:"subnet"`
-	ControlPlane bool   `json:"controlPlane"`
-	Address      string `json:"address,omitempty"`
+	// ClusterName is the name of the Dockyards cluster that owns the machine.
+	ClusterName string `json:"clusterName"`
+	// MachineName is the CAPI machine name that receives the allocated address.
+	MachineName string `json:"machineName"`
+	// Interface is the network interface on the machine where the address is assigned.
+	Interface string `json:"interface"`
+	// Subnet identifies the subnet pool used to allocate the address.
+	Subnet string `json:"subnet"`
+	// ControlPlane indicates whether the claim belongs to a control plane machine.
+	ControlPlane bool `json:"controlPlane"`
+	// Address optionally requests a specific address instead of automatic allocation.
+	Address string `json:"address,omitempty"`
 }
 
-// DockyardsIPAMClaimStatus defines observed state of DockyardsIPAMClaim.
+// DockyardsIPAMClaimStatus defines the observed allocation and reconciliation state.
 type DockyardsIPAMClaimStatus struct {
 	Phase              string `json:"phase,omitempty"`
 	Reason             string `json:"reason,omitempty"`
@@ -44,22 +50,25 @@ type DockyardsIPAMClaimStatus struct {
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.phase"
 // +kubebuilder:subresource:status
 
-// DockyardsIPAMClaim is the schema for Dockyards IPAM claims.
+// DockyardsIPAMClaim stores IP address allocation intent and controller status for a machine.
 type DockyardsIPAMClaim struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DockyardsIPAMClaimSpec   `json:"spec,omitempty"`
+	// Spec defines the requested allocation details.
+	Spec DockyardsIPAMClaimSpec `json:"spec,omitempty"`
+	// Status reports the observed allocation and reconciliation state.
 	Status DockyardsIPAMClaimStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// DockyardsIPAMClaimList contains a list of DockyardsIPAMClaim.
+// DockyardsIPAMClaimList contains a list of DockyardsIPAMClaim resources.
 type DockyardsIPAMClaimList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []DockyardsIPAMClaim `json:"items"`
+	// Items contains the list of DockyardsIPAMClaim resources.
+	Items []DockyardsIPAMClaim `json:"items"`
 }
 
 func (in *DockyardsIPAMClaim) DeepCopyInto(out *DockyardsIPAMClaim) {

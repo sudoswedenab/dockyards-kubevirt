@@ -40,9 +40,12 @@ spec:
       jsonPath: .status.phase
     schema:
       openAPIV3Schema:
+        description: DockyardsIPAMClaim stores IP address allocation intent and controller
+          status for a machine.
         type: object
         properties:
           spec:
+            description: Spec defines the requested allocation details.
             type: object
             required:
             - clusterName
@@ -52,27 +55,48 @@ spec:
             - controlPlane
             properties:
               clusterName:
+                description: ClusterName is the name of the Dockyards cluster that owns
+                  the machine.
                 type: string
               machineName:
+                description: MachineName is the CAPI machine name that receives the allocated
+                  address.
                 type: string
               interface:
+                description: Interface is the network interface on the machine where
+                  the address is assigned.
                 type: string
               subnet:
+                description: Subnet identifies the subnet pool used to allocate the
+                  address.
                 type: string
               controlPlane:
+                description: ControlPlane indicates whether the claim belongs to a
+                  control plane machine.
                 type: boolean
               address:
+                description: Address optionally requests a specific address instead
+                  of automatic allocation.
                 type: string
           status:
+            description: Status reports the observed allocation and reconciliation
+              state.
             type: object
             properties:
               phase:
+                description: Phase is the high-level lifecycle state of the claim.
                 type: string
               reason:
+                description: Reason is a short machine-readable explanation for the
+                  current phase.
                 type: string
               message:
+                description: Message is a human-readable explanation that provides
+                  additional context.
                 type: string
               observedGeneration:
+                description: ObservedGeneration is the latest generation processed
+                  by the controller.
                 type: integer
                 format: int64
     subresources:
