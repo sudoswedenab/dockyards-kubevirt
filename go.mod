@@ -11,7 +11,7 @@ require (
 	github.com/siderolabs/cluster-api-bootstrap-provider-talos v0.7.8
 	github.com/siderolabs/cluster-api-control-plane-provider-talos v0.6.5
 	github.com/spf13/pflag v1.0.10
-	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20260929081050-e503d4b2df1d
+	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20261020104601-0b878c30635d
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.37.1
 	k8s.io/apiextensions-apiserver v0.37.0
