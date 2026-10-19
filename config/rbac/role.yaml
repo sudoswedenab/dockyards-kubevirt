@@ -357,3 +357,51 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/console
+  verbs:
+  - get
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/pause
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/restart
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/softreboot
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/start
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/stop
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/unpause
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachines/vnc
+  verbs:
+  - get

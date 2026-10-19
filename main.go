@@ -17,13 +17,17 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	"github.com/sudoswedenab/dockyards-kubevirt/controllers"
+	"github.com/sudoswedenab/dockyards-kubevirt/internal/api/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -53,6 +57,7 @@ func main() {
 	var useBlockStorage bool
 	var talosClusterDiscoveryServiceEndpoint string
 	var networkInterfaceMultiqueue bool
+	var enableReconcilers bool
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
@@ -65,6 +70,7 @@ func main() {
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
 	pflag.BoolVar(&networkInterfaceMultiqueue, "network-interface-multiqueue-default", true, "enable network interface multiqueue on all vm interfaces")
+	pflag.BoolVar(&enableReconcilers, "enable-reconcilers", true, "enable reconcilers")
 	pflag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -87,6 +93,7 @@ func main() {
 
 	_ = clusterv1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
+	_ = authorizationv1.AddToScheme(scheme)
 
 	opts := manager.Options{
 		Metrics: server.Options{
@@ -112,117 +119,150 @@ func main() {
 		os.Exit(1)
 	}
 
-	secretClient, err := client.New(mgr.GetConfig(), client.Options{
-		HTTPClient: mgr.GetHTTPClient(),
-		Cache: &client.CacheOptions{
-			Reader: mgr.GetCache(),
-		},
-	})
-	if err != nil {
-		slogr.Error(err, "error creating secret client")
+	if enableReconcilers {
+		secretClient, err := client.New(mgr.GetConfig(), client.Options{
+			HTTPClient: mgr.GetHTTPClient(),
+			Cache: &client.CacheOptions{
+				Reader: mgr.GetCache(),
+			},
+		})
+		if err != nil {
+			slogr.Error(err, "error creating secret client")
 
-		os.Exit(1)
-	}
+			os.Exit(1)
+		}
 
-	clusterCache, err := clustercache.SetupWithManager(ctx, mgr, clustercache.Options{
-		SecretClient: secretClient,
-		Client: clustercache.ClientOptions{
-			UserAgent: "kubevirt.dockyards.io",
-		},
-	}, controller.Options{})
-	if err != nil {
-		slogr.Error(err, "error creating cluster cache")
+		clusterCache, err := clustercache.SetupWithManager(ctx, mgr, clustercache.Options{
+			SecretClient: secretClient,
+			Client: clustercache.ClientOptions{
+				UserAgent: "kubevirt.dockyards.io",
+			},
+		}, controller.Options{})
+		if err != nil {
+			slogr.Error(err, "error creating cluster cache")
 
-		os.Exit(1)
-	}
+			os.Exit(1)
+		}
 
-	gatewayParentReference := gatewayapiv1.ParentReference{
-		Name:      gatewayapiv1.ObjectName(gatewayName),
-		Namespace: ptr.To(gatewayapiv1.Namespace(gatewayNamespace)),
-	}
+		gatewayParentReference := gatewayapiv1.ParentReference{
+			Name:      gatewayapiv1.ObjectName(gatewayName),
+			Namespace: ptr.To(gatewayapiv1.Namespace(gatewayNamespace)),
+		}
 
-	err = (&controllers.KubevirtVirtualMachineReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating kubevirt virtualmachine reconciler")
-
-		os.Exit(1)
-	}
-
-	err = (&controllers.DockyardsNodePoolReconciler{
-		Client:                               mgr.GetClient(),
-		TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
-		DataVolumeStorageClassName:           &dataVolumeStorageClassName,
-		EnableMultus:                         enableMultus,
-		UseBlockStorage:                      useBlockStorage,
-		ValidNodeIPSubnets:                   validNodeIPSubnets,
-		DockyardsConfig:                      dockyardsConfig,
-		NetworkInterfaceMultiQueue:           networkInterfaceMultiqueue,
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating dockyards node pool reconciler")
-
-		os.Exit(1)
-	}
-
-	err = (&controllers.DockyardsOrganizationReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating dockyards organization reconciler")
-
-		os.Exit(1)
-	}
-
-	err = (&controllers.DockyardsClusterReconciler{
-		Client:                   mgr.GetClient(),
-		GatewayParentReference:   gatewayParentReference,
-		DockyardsSystemNamespace: dockyardsSystemNamespace,
-		DockyardsConfig:          dockyardsConfig,
-		EnableWorkloadIngress:    enableWorkloadIngress,
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating dockyards cluster reconciler")
-
-		os.Exit(1)
-	}
-
-	if enableWorkloadIngress {
-		err = (&controllers.DockyardsWorkloadReconciler{
-			Client:                 mgr.GetClient(),
-			GatewayParentReference: gatewayParentReference,
-			ClusterCache:           clusterCache,
+		err = (&controllers.KubevirtVirtualMachineReconciler{
+			Client: mgr.GetClient(),
 		}).SetupWithManager(mgr)
 		if err != nil {
-			slogr.Error(err, "error creating dockyards deployment reconciler")
+			slogr.Error(err, "error creating kubevirt virtualmachine reconciler")
+
+			os.Exit(1)
 		}
+
+		err = (&controllers.DockyardsNodePoolReconciler{
+			Client:                               mgr.GetClient(),
+			TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
+			DataVolumeStorageClassName:           &dataVolumeStorageClassName,
+			EnableMultus:                         enableMultus,
+			UseBlockStorage:                      useBlockStorage,
+			ValidNodeIPSubnets:                   validNodeIPSubnets,
+			DockyardsConfig:                      dockyardsConfig,
+			NetworkInterfaceMultiQueue:           networkInterfaceMultiqueue,
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards node pool reconciler")
+
+			os.Exit(1)
+		}
+
+		err = (&controllers.DockyardsOrganizationReconciler{
+			Client: mgr.GetClient(),
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards organization reconciler")
+
+			os.Exit(1)
+		}
+
+		err = (&controllers.DockyardsClusterReconciler{
+			Client:                   mgr.GetClient(),
+			GatewayParentReference:   gatewayParentReference,
+			DockyardsSystemNamespace: dockyardsSystemNamespace,
+			DockyardsConfig:          dockyardsConfig,
+			EnableWorkloadIngress:    enableWorkloadIngress,
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards cluster reconciler")
+
+			os.Exit(1)
+		}
+
+		if enableWorkloadIngress {
+			err = (&controllers.DockyardsWorkloadReconciler{
+				Client:                 mgr.GetClient(),
+				GatewayParentReference: gatewayParentReference,
+				ClusterCache:           clusterCache,
+			}).SetupWithManager(mgr)
+			if err != nil {
+				slogr.Error(err, "error creating dockyards deployment reconciler")
+
+				os.Exit(1)
+			}
+		}
+
+		err = (&controllers.DockyardsNodeReconciler{
+			Client: mgr.GetClient(),
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards node reconciler")
+
+			os.Exit(1)
+		}
+
+		err = (&controllers.DockyardsMachineIPReconciler{
+			Client: mgr.GetClient(),
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards machine IP reconciler")
+
+			os.Exit(1)
+		}
+
+		err = (&controllers.DockyardsReleaseReconciler{
+			Client:                     mgr.GetClient(),
+			DataVolumeStorageClassName: &dataVolumeStorageClassName,
+			UseBlockStorage:            useBlockStorage,
+		}).SetupWithManager(mgr)
+		if err != nil {
+			slogr.Error(err, "error creating dockyards release reconciler")
+
+			os.Exit(1)
+		}
+
 	}
 
-	err = (&controllers.DockyardsNodeReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating dockyards node reconciler")
-	}
+	publicMux := http.NewServeMux()
 
-	err = (&controllers.DockyardsMachineIPReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr)
+	api, err := v1.NewAPI(mgr, dockyardsConfig, dockyardsSystemNamespace)
 	if err != nil {
-		slogr.Error(err, "error creating dockyards machine IP reconciler")
+		slogr.Error(err, "error creating api")
 
 		os.Exit(1)
 	}
 
-	err = (&controllers.DockyardsReleaseReconciler{
-		Client:                     mgr.GetClient(),
-		DataVolumeStorageClassName: &dataVolumeStorageClassName,
-		UseBlockStorage:            useBlockStorage,
-	}).SetupWithManager(mgr)
-	if err != nil {
-		slogr.Error(err, "error creating dockyards release reconciler")
-	}
+	api.RegisterRoutes(publicMux)
+
+	public := cors(dockyardsConfig, publicMux)
+
+	go func() {
+		addr := ":9002"
+		logger.Info("serving http", "addr", addr)
+		err := http.ListenAndServe(addr, public)
+		if err != nil {
+			logger.Error("error running server", "err", err)
+
+			os.Exit(1)
+		}
+	}()
 
 	err = mgr.Start(ctx)
 	if err != nil {
@@ -230,4 +270,25 @@ func main() {
 
 		os.Exit(1)
 	}
+}
+
+func cors(config *dyconfig.ConfigManager, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowedOrigins := config.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
+		origins := strings.Join(allowedOrigins, ", ")
+		w.Header().Set("Access-Control-Allow-Origin", origins)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, QUERY, HEAD, POST, PUT, CONNECT, OPTIONS, TRACE, PATCH")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Origin")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
+		w.Header().Set("Access-Control-Max-Age", "600")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
