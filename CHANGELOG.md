@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.4](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.3...v0.2.4) (2026-10-20)
+
+
+### Features
+
+* add virtual machine apis ([188bb1f](https://github.com/sudoswedenab/dockyards-kubevirt/commit/188bb1ff7c57b71c1f9b36ca6332dcbc219240e8))
+
+
+### Bug Fixes
+
+* add required labels on nginx workload ([487f5e6](https://github.com/sudoswedenab/dockyards-kubevirt/commit/487f5e65a6d413b53ea78ef97eb9568dddb37a24))
+* add virtualmachine rbac and service ([65f08eb](https://github.com/sudoswedenab/dockyards-kubevirt/commit/65f08eb4bb9a7aa93eed87f4b807ac566834929f))
+* cors when there are multiple allowed domains ([34fcd91](https://github.com/sudoswedenab/dockyards-kubevirt/commit/34fcd914b77186e95aeebea177daccca05ce8bc1))
+* ensure that we can watch and list dockyards virtualmachines ([bad498c](https://github.com/sudoswedenab/dockyards-kubevirt/commit/bad498ca5ae7a04a4dff06e9fce84184b671e50e))
+* missing virtualmachineinstances/status rbac ([7baceca](https://github.com/sudoswedenab/dockyards-kubevirt/commit/7bacecab0ad7e5ee2d0e7518842770a1b7f842c6))
+* stale use of name virtualmachine where virtualmachineinstances should have been used ([d2a6951](https://github.com/sudoswedenab/dockyards-kubevirt/commit/d2a695149c0e42b58806c366ecd6f94f09aa322a))
+* update status field of virtualmachineinstance after creating it ([61e1b6d](https://github.com/sudoswedenab/dockyards-kubevirt/commit/61e1b6da284be563add5e1f378b57a9f6b61aad8))
+
 ## [0.2.3](https://github.com/sudoswedenab/dockyards-kubevirt/compare/v0.2.2...v0.2.3) (2026-09-29)
 
 
