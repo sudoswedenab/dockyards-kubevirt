@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
@@ -31,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"slices"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/clustercache"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -274,9 +274,21 @@ func main() {
 
 func cors(config *dyconfig.ConfigManager, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" { // Request was not made by browser, so CORS is not relevant.
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
 		allowedOrigins := config.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
-		origins := strings.Join(allowedOrigins, ", ")
-		w.Header().Set("Access-Control-Allow-Origin", origins)
+		if !slices.Contains(allowedOrigins, origin) {
+			w.WriteHeader(http.StatusForbidden)
+
+			return
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, QUERY, HEAD, POST, PUT, CONNECT, OPTIONS, TRACE, PATCH")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Origin")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
