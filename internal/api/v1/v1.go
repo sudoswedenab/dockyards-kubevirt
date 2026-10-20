@@ -287,6 +287,24 @@ func (v *KubeVirt) VNC(ctx context.Context, namespace string, name string) (*web
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/vnc", namespace, name))
 }
 
+func checkOrigin(configManager *dyconfig.ConfigManager) func (r *http.Request) bool {
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return false // This request was not by a webbrowser
+		}
+
+		allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
+		for _, o := range allowedOrigins {
+			if o == origin {
+				return true
+			}
+		}
+
+		return false
+	}
+}
+
 func NewAPI(mgr manager.Manager, configManager *dyconfig.ConfigManager, systemNamespace string) (*API, error) {
 	const bufferSize = 10240
 	pool := &sync.Pool{}
@@ -315,21 +333,7 @@ func NewAPI(mgr manager.Manager, configManager *dyconfig.ConfigManager, systemNa
 			ReadBufferSize: bufferSize,
 			WriteBufferSize: bufferSize,
 			WriteBufferPool: pool,
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				if origin == "" {
-					return false // This request was not by a webbrowser
-				}
-
-				allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
-				for _, o := range allowedOrigins {
-					if o == origin {
-						return true
-					}
-				}
-
-				return false
-			},
+			CheckOrigin: checkOrigin(configManager),
 		},
 		vncUpgrader: websocket.Upgrader{
 			Subprotocols: []string{
@@ -338,21 +342,7 @@ func NewAPI(mgr manager.Manager, configManager *dyconfig.ConfigManager, systemNa
 			ReadBufferSize: bufferSize,
 			WriteBufferSize: bufferSize,
 			WriteBufferPool: pool,
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				if origin == "" {
-					return false // This request was not by a webbrowser
-				}
-
-				allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
-				for _, o := range allowedOrigins {
-					if o == origin {
-						return true
-					}
-				}
-
-				return false
-			},
+			CheckOrigin: checkOrigin(configManager),
 		},
 		subjectAllowCache: SubjectAllowCache{
 			StreamEvents: true,
