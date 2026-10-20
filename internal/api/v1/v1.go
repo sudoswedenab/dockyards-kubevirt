@@ -118,6 +118,8 @@ func (c *SubjectAllowCache) allowList(ctx context.Context, subject string, resou
 	return allowList
 }
 
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+
 func (c *SubjectAllowCache) isAllowedVMSlow(ctx context.Context, subject string, resourceName string) bool {
 	logger := console.LoggerFrom(ctx)
 
@@ -145,6 +147,11 @@ func (c *SubjectAllowCache) isAllowedVMSlow(ctx context.Context, subject string,
 
 	return allowed
 }
+
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=watch;list
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=watch;list
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=watch;list
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=watch;list
 
 func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowList *AllowList, allowCache *SubjectAllowCache, stream *console.Stream) {
 	logger := console.LoggerFrom(ctx)
@@ -231,11 +238,11 @@ func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowL
 // +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/start,verbs=update
 // +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/stop,verbs=update
 // +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/restart,verbs=update
-// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/softreboot,verbs=update
-// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/pause,verbs=update
-// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/unpause,verbs=update
-// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/console,verbs=get
-// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachines/vnc,verbs=get
+// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachineinstances/softreboot,verbs=update
+// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachineinstances/pause,verbs=update
+// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachineinstances/unpause,verbs=update
+// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachineinstances/console,verbs=get
+// +kubebuilder:rbac:groups=subresources.kubevirt.io,resources=virtualmachineinstances/vnc,verbs=get
 
 type KubeVirt struct {
 	cfg *rest.Config

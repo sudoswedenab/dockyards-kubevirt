@@ -29,6 +29,12 @@ rules:
   - update
   - watch
 - apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
   - talosconfigs
@@ -340,6 +346,20 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
+  - clusterrolebindings
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterroles
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
   - rolebindings
   verbs:
   - create
@@ -360,25 +380,37 @@ rules:
 - apiGroups:
   - subresources.kubevirt.io
   resources:
-  - virtualmachines/console
+  - virtualmachineinstances/console
   verbs:
   - get
 - apiGroups:
   - subresources.kubevirt.io
   resources:
-  - virtualmachines/pause
+  - virtualmachineinstances/pause
   verbs:
   - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachineinstances/softreboot
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachineinstances/unpause
+  verbs:
+  - update
+- apiGroups:
+  - subresources.kubevirt.io
+  resources:
+  - virtualmachineinstances/vnc
+  verbs:
+  - get
 - apiGroups:
   - subresources.kubevirt.io
   resources:
   - virtualmachines/restart
-  verbs:
-  - update
-- apiGroups:
-  - subresources.kubevirt.io
-  resources:
-  - virtualmachines/softreboot
   verbs:
   - update
 - apiGroups:
@@ -393,15 +425,3 @@ rules:
   - virtualmachines/stop
   verbs:
   - update
-- apiGroups:
-  - subresources.kubevirt.io
-  resources:
-  - virtualmachines/unpause
-  verbs:
-  - update
-- apiGroups:
-  - subresources.kubevirt.io
-  resources:
-  - virtualmachines/vnc
-  verbs:
-  - get
