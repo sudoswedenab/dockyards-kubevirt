@@ -32,6 +32,7 @@ spec:
       - args:
         - --dockyards-namespace=$(METADATA_NAMESPACE)
         - --network-interface-multiqueue-default=true
+        - --talos-version-default=v1.12
         env:
         - name: METADATA_NAMESPACE
           valueFrom:

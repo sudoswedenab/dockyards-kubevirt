@@ -161,6 +161,46 @@ func TestSetMachineDeploymentRolloutStrategy(t *testing.T) {
 	}
 }
 
+func TestNormalizeAndValidateTalosVersion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid version with prefix", func(t *testing.T) {
+		got, err := NormalizeAndValidateTalosVersion("v1.12.9")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got != "v1.12.9" {
+			t.Fatalf("expected normalized version v1.12.9, got %q", got)
+		}
+	})
+
+	t.Run("valid version without prefix", func(t *testing.T) {
+		got, err := NormalizeAndValidateTalosVersion("1.13.2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got != "v1.13.2" {
+			t.Fatalf("expected normalized version v1.13.2, got %q", got)
+		}
+	})
+
+	t.Run("empty version", func(t *testing.T) {
+		_, err := NormalizeAndValidateTalosVersion(" ")
+		if err == nil {
+			t.Fatal("expected error for empty Talos version")
+		}
+	})
+
+	t.Run("invalid version", func(t *testing.T) {
+		_, err := NormalizeAndValidateTalosVersion("banana")
+		if err == nil {
+			t.Fatal("expected error for invalid Talos version")
+		}
+	})
+}
+
 func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("no kubebuilder assets configured")
@@ -1635,6 +1675,156 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
+	t.Run("test talos control plane uses configured default talos version", func(t *testing.T) {
+		reconcilerWithVersionDefault := reconciler
+		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12.9"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconcilerWithVersionDefault.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual controlplanev1.TalosControlPlane
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := actual.Spec.ControlPlaneConfig.ControlPlaneConfig.TalosVersion, "v1.12.9"; got != want {
+			t.Fatalf("unexpected talos version: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("test talos control plane cluster talos version override", func(t *testing.T) {
+		reconcilerWithVersionDefault := reconciler
+		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12.9"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterTalosVersionOverride(ctx, t, c, owner, "1.13.2")
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconcilerWithVersionDefault.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual controlplanev1.TalosControlPlane
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := actual.Spec.ControlPlaneConfig.ControlPlaneConfig.TalosVersion, "v1.13.2"; got != want {
+			t.Fatalf("unexpected talos version: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("test talos control plane invalid cluster talos version returns error", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		patch := client.MergeFrom(owner.DeepCopy())
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+		err = c.Status().Patch(ctx, &owner, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterTalosVersionOverride(ctx, t, c, owner, "banana")
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = reconciler.reconcileTalosControlPlane(ctx, &nodePool, &owner)
+		if err == nil {
+			t.Fatal("expected reconcileTalosControlPlane to return an error")
+		}
+	})
+
 	t.Run("test controlplane node labels", func(t *testing.T) {
 		owner := dockyardsv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
@@ -2768,7 +2958,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		_, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2794,6 +2984,274 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		if !cmp.Equal(actual, expected) {
 			t.Errorf("diff: %s", cmp.Diff(expected, actual))
 			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
+		}
+	})
+
+	t.Run("test config template uses configured default talos version", func(t *testing.T) {
+		reconcilerWithVersionDefault := reconciler
+		reconcilerWithVersionDefault.TalosVersionDefault = "1.13.2"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, talosConfigTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := talosConfigTemplateName, nodePool.Name; got != want {
+			t.Fatalf("unexpected template name: got %q, want %q", got, want)
+		}
+
+		var actual bootstrapv1.TalosConfigTemplate
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateName}, &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := actual.Spec.Template.Spec.TalosVersion, "v1.13.2"; got != want {
+			t.Fatalf("unexpected TalosVersion: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("test config template cluster talos version override", func(t *testing.T) {
+		reconcilerWithVersionDefault := reconciler
+		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12.9"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterTalosVersionOverride(ctx, t, c, owner, "1.13.4")
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, talosConfigTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var actual bootstrapv1.TalosConfigTemplate
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: talosConfigTemplateName}, &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := actual.Spec.Template.Spec.TalosVersion, "v1.13.4"; got != want {
+			t.Fatalf("unexpected TalosVersion: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("test config template invalid cluster talos version returns error", func(t *testing.T) {
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setClusterTalosVersionOverride(ctx, t, c, owner, "banana")
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, _, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err == nil {
+			t.Fatal("expected reconcileTalosConfigTemplate to return an error")
+		}
+	})
+
+	t.Run("test config template invalid talos version default returns error", func(t *testing.T) {
+		reconcilerWithInvalidDefault := reconciler
+		reconcilerWithInvalidDefault.TalosVersionDefault = "banana"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, _, err = reconcilerWithInvalidDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err == nil {
+			t.Fatal("expected reconcileTalosConfigTemplate to return an error")
+		}
+	})
+
+	t.Run("test config template version change creates new immutable revision", func(t *testing.T) {
+		reconcilerWithVersionDefault := reconciler
+		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12"
+
+		owner := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test",
+				Namespace:    namespace.Name,
+			},
+		}
+
+		err := c.Create(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		statusPatch := client.MergeFrom(owner.DeepCopy())
+		owner.Status.APIEndpoint = dockyardsv1.ClusterAPIEndpoint{
+			Host: "localhost",
+			Port: 6443,
+		}
+		err = c.Status().Patch(ctx, &owner, statusPatch)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nodePool := dockyardsv1.NodePool{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: owner.Name + "-test-",
+				Namespace:    owner.Namespace,
+			},
+		}
+
+		err = c.Create(ctx, &nodePool)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, initialTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := initialTemplateName, nodePool.Name; got != want {
+			t.Fatalf("unexpected initial template name: got %q, want %q", got, want)
+		}
+
+		_, err = reconcilerWithVersionDefault.reconcileMachineDeployment(ctx, &nodePool, &owner, initialTemplateName)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, secondTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := secondTemplateName, initialTemplateName; got != want {
+			t.Fatalf("template name changed without config changes: got %q, want %q", got, want)
+		}
+
+		setClusterTalosVersionOverride(ctx, t, c, owner, "v1.12.9")
+
+		_, upgradedTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if upgradedTemplateName == initialTemplateName {
+			t.Fatalf("expected new template revision after Talos version change, got %q", upgradedTemplateName)
+		}
+
+		_, err = reconcilerWithVersionDefault.reconcileMachineDeployment(ctx, &nodePool, &owner, upgradedTemplateName)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, stabilizedTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := stabilizedTemplateName, upgradedTemplateName; got != want {
+			t.Fatalf("unexpected stabilized template name: got %q, want %q", got, want)
+		}
+
+		var machineDeployment clusterv1.MachineDeployment
+		err = c.Get(ctx, client.ObjectKeyFromObject(&nodePool), &machineDeployment)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := machineDeployment.Spec.Template.Spec.Bootstrap.ConfigRef.Name, upgradedTemplateName; got != want {
+			t.Fatalf("unexpected MachineDeployment bootstrap ref: got %q, want %q", got, want)
+		}
+
+		var upgradedTemplate bootstrapv1.TalosConfigTemplate
+		err = c.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: upgradedTemplateName}, &upgradedTemplate)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := upgradedTemplate.Spec.Template.Spec.TalosVersion, "v1.12.9"; got != want {
+			t.Fatalf("unexpected upgraded template TalosVersion: got %q, want %q", got, want)
 		}
 	})
 
@@ -2825,7 +3283,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		_, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2893,7 +3351,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		_, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2961,7 +3419,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		_, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err == nil {
 			t.Fatal("expected reconcileTalosConfigTemplate to return an error")
 		}
@@ -3000,7 +3458,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		_, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = reconciler.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3077,7 +3535,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			}),
 		}
 
-		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3153,7 +3611,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			}),
 		}
 
-		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3230,7 +3688,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			}),
 		}
 
-		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3306,7 +3764,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			DockyardsConfig:                      dyconfig.NewFakeConfigManager(nil),
 		}
 
-		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3385,7 +3843,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			DockyardsConfig:                      dyconfig.NewFakeConfigManager(nil),
 		}
 
-		_, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
+		_, _, err = r.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3841,6 +4299,37 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 			showYamlExpectedAndActual(t, expected.Spec, actual.Spec)
 		}
 	})
+}
+
+func setClusterTalosVersionOverride(ctx context.Context, t *testing.T, c client.Client, owner dockyardsv1.Cluster, value string) {
+	t.Helper()
+
+	u := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      owner.Name,
+				"namespace": owner.Namespace,
+			},
+		},
+	}
+
+	err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	patch := client.MergeFrom(u.DeepCopy())
+	err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", clusterTalosVersionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = c.Patch(ctx, &u, patch)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func showYamlExpectedAndActual(t *testing.T, expected any, actual any) {

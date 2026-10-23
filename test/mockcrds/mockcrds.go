@@ -37,6 +37,7 @@ var (
 	DockyardsCluster        = mockCRD(dockyardsv1.ClusterKind, "clusters", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 	TalosControlPlane       = mockCRD("TalosControlPlane", "taloscontrolplanes", controlplanev1.GroupVersion.Group, controlplanev1.GroupVersion.Version)
 	CAPICluster             = mockCRD(clusterv1.ClusterKind, "clusters", clusterv1.GroupVersion.Group, clusterv1.GroupVersion.Version)
+	CAPIMachineDeployment   = mockCRD("MachineDeployment", "machinedeployments", clusterv1.GroupVersion.Group, clusterv1.GroupVersion.Version)
 	TalosConfigTemplate     = mockCRD("TalosConfigTemplate", "talosconfigtemplates", bootstrapv1.GroupVersion.Group, bootstrapv1.GroupVersion.Version)
 	DockyardsWorkload       = mockCRD(dockyardsv1.WorkloadKind, "workloads", dockyardsv1.GroupVersion.Group, dockyardsv1.GroupVersion.Version)
 
@@ -50,6 +51,7 @@ var (
 		DockyardsCluster,
 		TalosControlPlane,
 		CAPICluster,
+		CAPIMachineDeployment,
 		TalosConfigTemplate,
 		DockyardsWorkload,
 	}
