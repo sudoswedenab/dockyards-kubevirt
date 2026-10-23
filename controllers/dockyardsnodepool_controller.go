@@ -28,11 +28,13 @@ import (
 	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
 	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
+	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,11 +83,14 @@ type DockyardsNodePoolReconciler struct {
 	EnableInPlaceUpdates                 bool
 	DockyardsConfig                      *dyconfig.ConfigManager
 	NetworkInterfaceMultiQueue           bool
+	TalosVersionDefault                  string
 }
 
 const (
 	defaultTalosInstallerDataVolumeSize  = "8Gi"
+	DefaultTalosVersion                  = "v1.12"
 	clusterNetworkInterfaceMultiqueueKey = "networkInterfaceMultiqueue"
+	clusterTalosVersionKey               = "talosVersion"
 )
 
 type talosInstallerOverride struct {
@@ -137,12 +142,12 @@ func (r *DockyardsNodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.reconcileTalosControlPlane(ctx, &dockyardsNodePool, &ownerCluster)
 	}
 
-	result, err = r.reconcileTalosConfigTemplate(ctx, &dockyardsNodePool, &ownerCluster)
+	result, talosConfigTemplateName, err := r.reconcileTalosConfigTemplate(ctx, &dockyardsNodePool, &ownerCluster)
 	if err != nil {
 		return result, err
 	}
 
-	result, err = r.reconcileMachineDeployment(ctx, &dockyardsNodePool, &ownerCluster)
+	result, err = r.reconcileMachineDeployment(ctx, &dockyardsNodePool, &ownerCluster, talosConfigTemplateName)
 	if err != nil {
 		return result, err
 	}
@@ -755,6 +760,90 @@ func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx cont
 	return ptr.To(enabled), nil
 }
 
+func NormalizeAndValidateTalosVersion(value string) (string, error) {
+	normalized := normalizeTalosVersion(value)
+	if normalized == "" {
+		return "", fmt.Errorf("must not be empty")
+	}
+
+	_, err := talosconfig.ParseContractFromVersion(normalized)
+	if err != nil {
+		return "", fmt.Errorf("%q is invalid: %w", normalized, err)
+	}
+
+	return normalized, nil
+}
+
+func normalizeTalosVersion(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	return "v" + strings.TrimPrefix(value, "v")
+}
+
+func (r *DockyardsNodePoolReconciler) resolveTalosVersionDefault() (string, error) {
+	defaultVersion := r.TalosVersionDefault
+	if strings.TrimSpace(defaultVersion) == "" {
+		defaultVersion = DefaultTalosVersion
+	}
+
+	normalized, err := NormalizeAndValidateTalosVersion(defaultVersion)
+	if err != nil {
+		return "", fmt.Errorf("invalid talos version default: %w", err)
+	}
+
+	return normalized, nil
+}
+
+func (r *DockyardsNodePoolReconciler) resolveTalosVersion(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (string, error) {
+	defaultVersion, err := r.resolveTalosVersionDefault()
+	if err != nil {
+		return "", err
+	}
+
+	if dockyardsCluster == nil || dockyardsCluster.Name == "" {
+		return defaultVersion, nil
+	}
+
+	unstructuredDockyardsCluster := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": dockyardsv1.GroupVersion.String(),
+			"kind":       dockyardsv1.ClusterKind,
+			"metadata": map[string]any{
+				"name":      dockyardsCluster.Name,
+				"namespace": dockyardsCluster.Namespace,
+			},
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
+	if err != nil {
+		return "", err
+	}
+
+	talosVersion, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", clusterTalosVersionKey)
+	if err != nil {
+		return "", err
+	}
+
+	if !found {
+		return defaultVersion, nil
+	}
+
+	if normalizeTalosVersion(talosVersion) == "" {
+		return defaultVersion, nil
+	}
+
+	normalized, err := NormalizeAndValidateTalosVersion(talosVersion)
+	if err != nil {
+		return "", fmt.Errorf("invalid spec.advanced.kubevirt.talos.%s: %w", clusterTalosVersionKey, err)
+	}
+
+	return normalized, nil
+}
+
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {
 	// Configure NTP servers using the Talos TimeSyncConfig document (Talos v1.12+).
 	//
@@ -918,6 +1007,13 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		return ctrl.Result{}, err
 	}
 
+	talosVersion, err := r.resolveTalosVersion(ctx, dockyardsCluster)
+	if err != nil {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, err
+	}
+
 	controlPlanePatch := talospatchv1.Config{
 		Version: talospatchv1.ConfigVersion,
 	}
@@ -1003,7 +1099,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		talosControlPlane.Spec.ControlPlaneConfig = controlplanev1.ControlPlaneConfig{
 			ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
 				GenerateType:     "controlplane",
-				TalosVersion:     "v1.12",
+				TalosVersion:     talosVersion,
 				StrategicPatches: strategicPatches,
 			},
 		}
@@ -1042,64 +1138,201 @@ func marshalAuthenticationConfig(authenticationConfig *apiserverv1.Authenticatio
 	return yaml.Marshal(document)
 }
 
-func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx)
-
+func (r *DockyardsNodePoolReconciler) desiredWorkerTalosConfigSpec(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (bootstrapv1.TalosConfigSpec, error) {
 	var strategicPatches StrategicPatches
 
 	err := r.addSharedConfigPatches(dockyardsCluster, &strategicPatches)
 	if err != nil {
-		return ctrl.Result{}, err
+		return bootstrapv1.TalosConfigSpec{}, err
 	}
 
 	patches := dockyardsCluster.Spec.Advanced.Kubevirt.Talos.AdditionalWorkerConfigPatches
 	if len(patches) > 0 {
 		err = strategicPatches.AddMany(patches)
 		if err != nil {
-			return ctrl.Result{}, err
+			return bootstrapv1.TalosConfigSpec{}, err
 		}
 	}
 
 	err = r.addNodePoolNodeLabelsConfigPatch(dockyardsNodePool, &strategicPatches)
 	if err != nil {
-		return ctrl.Result{}, err
+		return bootstrapv1.TalosConfigSpec{}, err
 	}
 
 	err = r.addNodePoolNodeTaintsConfigPatch(dockyardsNodePool, &strategicPatches)
 	if err != nil {
-		return ctrl.Result{}, err
+		return bootstrapv1.TalosConfigSpec{}, err
 	}
 
-	talosConfigTemplate := bootstrapv1.TalosConfigTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      dockyardsNodePool.Name,
-			Namespace: dockyardsNodePool.Namespace,
-		},
-	}
-
-	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosConfigTemplate, func() error {
-		talosConfigTemplate.Spec.Template.Spec.GenerateType = "worker"
-		talosConfigTemplate.Spec.Template.Spec.TalosVersion = "v1.12"
-
-		talosConfigTemplate.Spec.Template.Spec.StrategicPatches = strategicPatches
-
-		return nil
-	})
+	talosVersion, err := r.resolveTalosVersion(ctx, dockyardsCluster)
 	if err != nil {
-		return ctrl.Result{}, err
+		return bootstrapv1.TalosConfigSpec{}, err
+	}
+
+	return bootstrapv1.TalosConfigSpec{
+		GenerateType:     "worker",
+		TalosVersion:     talosVersion,
+		StrategicPatches: strategicPatches,
+	}, nil
+}
+
+func (r *DockyardsNodePoolReconciler) reconcileTalosConfigTemplate(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, string, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	desiredSpec, err := r.desiredWorkerTalosConfigSpec(ctx, dockyardsNodePool, dockyardsCluster)
+	if err != nil {
+		return ctrl.Result{}, "", err
+	}
+
+	talosConfigTemplateName, operationResult, err := r.reconcileWorkerTalosConfigTemplate(ctx, dockyardsNodePool, desiredSpec)
+	if err != nil {
+		return ctrl.Result{}, "", err
 	}
 
 	conditions.MarkTrue(dockyardsNodePool, TalosConfigTemplateReconciledCondition, ReconciledReason, "")
 
 	if operationResult != controllerutil.OperationResultNone {
-		logger.Info("reconciled talos config template", "result", operationResult)
+		logger.Info("reconciled talos config template", "result", operationResult, "name", talosConfigTemplateName)
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, talosConfigTemplateName, nil
 }
 
-func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+func (r *DockyardsNodePoolReconciler) reconcileWorkerTalosConfigTemplate(
+	ctx context.Context,
+	dockyardsNodePool *dockyardsv1.NodePool,
+	desiredSpec bootstrapv1.TalosConfigSpec,
+) (string, controllerutil.OperationResult, error) {
+	currentTemplateName, err := r.currentWorkerTalosConfigTemplateName(ctx, dockyardsNodePool)
+	if err != nil {
+		return "", controllerutil.OperationResultNone, err
+	}
+
+	currentTemplate := bootstrapv1.TalosConfigTemplate{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: dockyardsNodePool.Namespace, Name: currentTemplateName}, &currentTemplate)
+	if err == nil {
+		if apiequality.Semantic.DeepEqual(currentTemplate.Spec.Template.Spec, desiredSpec) {
+			return currentTemplateName, controllerutil.OperationResultNone, nil
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return "", controllerutil.OperationResultNone, err
+	}
+
+	if currentTemplateName == dockyardsNodePool.Name && apierrors.IsNotFound(err) {
+		operationResult, createErr := r.reconcileWorkerTalosConfigTemplateRevision(ctx, dockyardsNodePool, dockyardsNodePool.Name, desiredSpec)
+		if createErr != nil {
+			return "", controllerutil.OperationResultNone, createErr
+		}
+
+		return dockyardsNodePool.Name, operationResult, nil
+	}
+
+	revisionTemplateName, err := workerTalosConfigTemplateRevisionName(dockyardsNodePool.Name, desiredSpec)
+	if err != nil {
+		return "", controllerutil.OperationResultNone, err
+	}
+
+	operationResult, err := r.reconcileWorkerTalosConfigTemplateRevision(ctx, dockyardsNodePool, revisionTemplateName, desiredSpec)
+	if err != nil {
+		return "", controllerutil.OperationResultNone, err
+	}
+
+	return revisionTemplateName, operationResult, nil
+}
+
+func (r *DockyardsNodePoolReconciler) currentWorkerTalosConfigTemplateName(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (string, error) {
+	talosConfigTemplateName := dockyardsNodePool.Name
+
+	machineDeployment := clusterv1.MachineDeployment{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: dockyardsNodePool.Namespace, Name: dockyardsNodePool.Name}, &machineDeployment)
+	if apierrors.IsNotFound(err) {
+		return talosConfigTemplateName, nil
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	configRef := machineDeployment.Spec.Template.Spec.Bootstrap.ConfigRef
+	if !configRef.IsDefined() {
+		return talosConfigTemplateName, nil
+	}
+
+	if configRef.APIGroup != bootstrapv1.GroupVersion.Group {
+		return talosConfigTemplateName, nil
+	}
+
+	if configRef.Kind != "TalosConfigTemplate" {
+		return talosConfigTemplateName, nil
+	}
+
+	if strings.TrimSpace(configRef.Name) == "" {
+		return talosConfigTemplateName, nil
+	}
+
+	return configRef.Name, nil
+}
+
+func (r *DockyardsNodePoolReconciler) reconcileWorkerTalosConfigTemplateRevision(
+	ctx context.Context,
+	dockyardsNodePool *dockyardsv1.NodePool,
+	templateName string,
+	desiredSpec bootstrapv1.TalosConfigSpec,
+) (controllerutil.OperationResult, error) {
+	talosConfigTemplate := bootstrapv1.TalosConfigTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      templateName,
+			Namespace: dockyardsNodePool.Namespace,
+		},
+	}
+
+	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &talosConfigTemplate, func() error {
+		if !talosConfigTemplate.CreationTimestamp.IsZero() {
+			if !apiequality.Semantic.DeepEqual(talosConfigTemplate.Spec.Template.Spec, desiredSpec) {
+				return fmt.Errorf("existing TalosConfigTemplate %s/%s has a different immutable spec", talosConfigTemplate.Namespace, talosConfigTemplate.Name)
+			}
+
+			return nil
+		}
+
+		talosConfigTemplate.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: dockyardsv1.GroupVersion.String(),
+				Kind:       dockyardsv1.NodePoolKind,
+				Name:       dockyardsNodePool.Name,
+				UID:        dockyardsNodePool.UID,
+			},
+		}
+
+		talosConfigTemplate.Spec.Template.Spec = desiredSpec
+
+		return nil
+	})
+	if err != nil {
+		return controllerutil.OperationResultNone, err
+	}
+
+	return operationResult, nil
+}
+
+func workerTalosConfigTemplateRevisionName(nodePoolName string, spec bootstrapv1.TalosConfigSpec) (string, error) {
+	hashInput, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+
+	checksum := sha256.Sum256(hashInput)
+	suffix := "-talos-config-" + hex.EncodeToString(checksum[:6])
+
+	return cappedKubernetesName(nodePoolName, suffix), nil
+}
+
+func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster, talosConfigTemplateName string) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
+
+	if strings.TrimSpace(talosConfigTemplateName) == "" {
+		talosConfigTemplateName = dockyardsNodePool.Name
+	}
 
 	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
 		conditions.MarkFalse(dockyardsNodePool, MachineDeploymentReconciledCondition, WaitingForClusterEndpointReason, "")
@@ -1127,7 +1360,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineDeployment(ctx context.Con
 			ConfigRef: clusterv1.ContractVersionedObjectReference{
 				APIGroup: bootstrapv1.GroupVersion.Group,
 				Kind:     "TalosConfigTemplate",
-				Name:     dockyardsNodePool.Name,
+				Name:     talosConfigTemplateName,
 			},
 		}
 

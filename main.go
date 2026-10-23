@@ -54,6 +54,7 @@ func main() {
 	var enableInPlaceUpdates bool
 	var talosClusterDiscoveryServiceEndpoint string
 	var networkInterfaceMultiqueue bool
+	var talosVersionDefault string
 	pflag.StringVar(&gatewayName, "gateway-name", "", "gateway name")
 	pflag.StringVar(&gatewayNamespace, "gateway-namespace", "", "gateway namespace")
 	pflag.StringVar(&metricsBindAddress, "metrics-bind-address", "0", "metrics bind address")
@@ -67,7 +68,16 @@ func main() {
 	pflag.BoolVar(&enableWorkloadIngress, "workload-ingress", true, "enable workload ingress")
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
 	pflag.BoolVar(&networkInterfaceMultiqueue, "network-interface-multiqueue-default", true, "enable network interface multiqueue on all vm interfaces")
+	pflag.StringVar(&talosVersionDefault, "talos-version-default", controllers.DefaultTalosVersion, "default Talos configuration compatibility version when cluster does not set spec.advanced.kubevirt.talos.talosVersion")
 	pflag.Parse()
+
+	normalizedTalosVersionDefault, err := controllers.NormalizeAndValidateTalosVersion(talosVersionDefault)
+	if err != nil {
+		slog.Error("invalid --talos-version-default", "err", err)
+
+		os.Exit(1)
+	}
+	talosVersionDefault = normalizedTalosVersionDefault
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -146,6 +156,7 @@ func main() {
 	err = (&controllers.DockyardsNodePoolReconciler{
 		Client:                               mgr.GetClient(),
 		TalosClusterDiscoveryServiceEndpoint: talosClusterDiscoveryServiceEndpoint,
+		TalosVersionDefault:                  talosVersionDefault,
 		DataVolumeStorageClassName:           &dataVolumeStorageClassName,
 		EnableMultus:                         enableMultus,
 		UseBlockStorage:                      useBlockStorage,

@@ -150,6 +150,30 @@ Notes:
 - Changing the URL creates a new `DataVolume` and repoints the `DataSource` to it.
 - Empty or missing values fall back to the default Talos release `DataSource`.
 
+#### Per-cluster Talos config compatibility version
+
+By default, Talos bootstrap configuration is generated using the global `--talos-version-default` value (defaults to `v1.12`).
+
+To override this per Dockyards cluster, set `spec.advanced.kubevirt.talos.talosVersion` on the owning `dockyards.io/v1alpha3 Cluster`:
+
+```yaml
+apiVersion: dockyards.io/v1alpha3
+kind: Cluster
+metadata:
+  name: example
+  namespace: customer-a
+spec:
+  advanced:
+    kubevirt:
+      talos:
+        talosVersion: v1.12.9
+```
+
+Notes:
+- Resolution order is: `spec.advanced.kubevirt.talos.talosVersion` -> `--talos-version-default` -> built-in `v1.12`.
+- Invalid `talosVersion` values fail reconciliation (no silent fallback).
+- Worker Talos templates are immutable; when the effective Talos version changes, the controller creates a new `TalosConfigTemplate` revision and updates `MachineDeployment` to reference it.
+
 #### External node IP configuration on running machines
 
 When a CAPI Machine is already running and its generated Talos bootstrap configuration is missing its allocated external IP, the machine IP controller patches the bootstrap Secret and updates only the address in the active Talos configuration. Existing routes and other machine configuration documents are preserved. Successfully applied addresses are recorded on the IPAM claim so retries do not repeatedly apply the same configuration.
@@ -274,6 +298,8 @@ The controller reads selected keys from the Dockyards ConfigMap (configured via 
 3. Ensure the Talos release data sources and `NodePool` specs match the storage classes and networks you expose to KubeVirt so that machine templates and Talos configs can be generated automatically.
 
 Note: if a specific Dockyards cluster should use a different root disk storage class than the global `--data-volume-storage-class-name`, set `spec.advanced.kubevirt.dataVolumeStorageClassName` on that cluster.
+
+Note: if a specific Dockyards cluster should use a different Talos config compatibility contract than the global `--talos-version-default`, set `spec.advanced.kubevirt.talos.talosVersion` on that cluster.
 
 Note: if a specific Dockyards cluster should bind workload `HTTPRoute`/`TLSRoute` to a different Gateway than the global `--gateway-name`/`--gateway-namespace`, set `spec.advanced.gateway.parentRef.name` and `spec.advanced.gateway.parentRef.namespace`.
 
