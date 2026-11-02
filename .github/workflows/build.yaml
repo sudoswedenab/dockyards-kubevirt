@@ -83,7 +83,8 @@ jobs:
     steps:
       - id: prep
         run: |
-          branch=${GITHUB_HEAD_REF:-${GITHUB_REF##*/}}
+          raw_branch=${GITHUB_HEAD_REF:-${GITHUB_REF##*/}}
+          branch=${raw_branch//\//-}
           sha=${GITHUB_SHA::8}
           ts=$(date +%s)
           echo "buildid=${branch}-${sha}-${ts}" >> "$GITHUB_OUTPUT"
