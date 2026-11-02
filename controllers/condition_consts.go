@@ -42,6 +42,8 @@ const (
 
 const (
 	APIEndpointReconciledCondition = "APIEndpointReconciled"
+	CAPIClusterReconciledCondition = "CAPIClusterReconciled"
+	WaitingForCAPIClusterReason    = "WaitingForCAPICluster"
 
 	WaitingForListenerHostnameReason = "WaitingForListenerHostname"
 )
