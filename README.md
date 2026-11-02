@@ -179,6 +179,10 @@ Notes:
 
 When a CAPI Machine is already running and its generated Talos bootstrap configuration is missing its allocated external IP, the machine IP controller patches the bootstrap Secret and updates only the address in the active Talos configuration. Existing routes and other machine configuration documents are preserved. Successfully applied addresses are recorded on the IPAM claim so retries do not repeatedly apply the same configuration.
 
+Address repair also runs while a Cluster API in-place update is pending. The controller reads the active Talos configuration on every check, repairs missing addresses with `NO_REBOOT`, and preserves CABPT's bootstrap config-hash annotation and installer configuration. A matching previously applied hash does not suppress checking the current address. While the update is pending, checks repeat every five seconds; temporarily unreachable nodes remain Pending with reason `RetryingIPConfiguration` and are retried. A successfully repaired IPAM claim can be Ready while its Machine is still Updating.
+
+This is automatic address repair, not atomic preservation: a concurrent CABPT apply can briefly remove the address again. Route restoration remains managed by the LinkConfig controller in `dockyards-talos`.
+
 #### Worker in-place update rollout budget
 
 The `--enable-in-place-updates` controller flag configures worker MachineDeployments to use `maxSurge: 0` and `maxUnavailable: 1`, allowing Cluster API to update existing eligible Machines in place without first creating a temporary surge Machine. When disabled (the binary default), the controller restores the standard rollout budget of `maxSurge: 1` and `maxUnavailable: 0`. CAPI's `InPlaceUpdates` and `RuntimeSDK` feature gates and the CABPT runtime extension must also be enabled; unsupported changes can still require replacement.

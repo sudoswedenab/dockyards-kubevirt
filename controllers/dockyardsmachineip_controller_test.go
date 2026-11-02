@@ -21,9 +21,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	bootstrapv1 "github.com/siderolabs/cluster-api-bootstrap-provider-talos/api/v1alpha3"
+	controlplanev1 "github.com/siderolabs/cluster-api-control-plane-provider-talos/api/v1alpha3"
 	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	dockyardskubevirtv1 "github.com/sudoswedenab/dockyards-kubevirt/api/v1alpha1"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +34,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
@@ -386,16 +391,22 @@ type fakeTalosMachineClient struct {
 	activeConfig []byte
 	requests     []*machineapi.ApplyConfigurationRequest
 	err          error
+	readErr      error
+	reads        int
 	closed       bool
 }
 
 func (c *fakeTalosMachineClient) ApplyConfiguration(_ context.Context, request *machineapi.ApplyConfigurationRequest, _ ...grpc.CallOption) (*machineapi.ApplyConfigurationResponse, error) {
 	c.requests = append(c.requests, &machineapi.ApplyConfigurationRequest{Data: append([]byte(nil), request.Data...), Mode: request.Mode})
+	if c.err == nil {
+		c.activeConfig = append([]byte(nil), request.Data...)
+	}
 	return &machineapi.ApplyConfigurationResponse{}, c.err
 }
 
 func (c *fakeTalosMachineClient) ActiveMachineConfiguration(context.Context) ([]byte, error) {
-	return append([]byte(nil), c.activeConfig...), nil
+	c.reads++
+	return append([]byte(nil), c.activeConfig...), c.readErr
 }
 
 func (c *fakeTalosMachineClient) Close() error {
@@ -411,6 +422,8 @@ func newInPlaceConfigFixture(t *testing.T, objects ...client.Object) (*Dockyards
 		corev1.AddToScheme,
 		clusterv1.AddToScheme,
 		bootstrapv1.AddToScheme,
+		controlplanev1.AddToScheme,
+		dockyardsv1.AddToScheme,
 		dockyardskubevirtv1.AddToScheme,
 	} {
 		if err := addToScheme(scheme); err != nil {
@@ -503,58 +516,192 @@ func TestApplyInPlaceConfigurationUsesNoRebootAndStoresHash(t *testing.T) {
 	}
 }
 
-func TestApplyInPlaceConfigurationWaitsForCAPIUpdate(t *testing.T) {
+func TestApplyInPlaceConfigurationRepairsDuringCAPIUpdate(t *testing.T) {
 	t.Parallel()
 
-	machine := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "machine-a", Namespace: "default",
-			Annotations: map[string]string{clusterv1.UpdateInProgressAnnotation: ""},
-		},
-	}
-	talosConfig := &bootstrapv1.TalosConfig{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-config", Namespace: "default"}}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-bootstrap-data", Namespace: "default"}}
-	claim := &dockyardskubevirtv1.DockyardsIPAMClaim{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-external-node-ip", Namespace: "default"}}
-	r, apiClient := newInPlaceConfigFixture(t, machine, talosConfig, secret, claim)
+	for _, tt := range []struct {
+		name                 string
+		machineAnnotations   map[string]string
+		bootstrapAnnotations map[string]string
+	}{
+		{name: "machine update annotation", machineAnnotations: map[string]string{clusterv1.UpdateInProgressAnnotation: ""}},
+		{name: "pending UpdateMachine hook", machineAnnotations: map[string]string{pendingHooksAnnotation: "AfterControlPlaneUpgrade,UpdateMachine"}},
+		{name: "bootstrap update annotation", bootstrapAnnotations: map[string]string{clusterv1.UpdateInProgressAnnotation: ""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []byte("version: v1alpha1\n")
+			machine := &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Annotations: tt.machineAnnotations},
+				Status:     clusterv1.MachineStatus{Addresses: []clusterv1.MachineAddress{{Type: clusterv1.MachineInternalIP, Address: "192.168.1.10"}}},
+			}
+			talosConfig := &bootstrapv1.TalosConfig{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-config", Namespace: "default", Annotations: tt.bootstrapAnnotations}}
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-bootstrap-data", Namespace: "default"}, Data: map[string][]byte{"value": data}}
+			claim := &dockyardskubevirtv1.DockyardsIPAMClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: "machine-a-external-node-ip", Namespace: "default"},
+				Status:     dockyardskubevirtv1.DockyardsIPAMClaimStatus{AppliedConfigHash: inPlaceAppliedConfigHash("eth1", "10.71.22.171/27", "", data)},
+			}
+			credentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a-talosconfig", Namespace: "default"}, Data: map[string][]byte{"talosconfig": []byte("test config")}}
+			r, apiClient := newInPlaceConfigFixture(t, machine, talosConfig, secret, claim, credentials)
+			apiClient.activeConfig = []byte(`version: v1alpha1
+machine:
+  install:
+    image: factory.talos.dev/openstack-installer/abc:v1.13.0
+  kubelet:
+    nodeIP:
+      validSubnets:
+        - 10.71.22.160/27
+---
+apiVersion: v1alpha1
+kind: LinkConfig
+name: eth1
+up: true
+addresses:
+  - address: 192.0.2.10/24
+routes:
+  - gateway: 10.71.22.161
+    metric: 100
+`)
 
-	result, err := r.applyInPlaceConfiguration(context.Background(), machine, talosConfig, secret, claim, []byte("config"), "eth1", "10.71.22.171/27", types.NamespacedName{Namespace: "default", Name: "cluster-a"})
-	if err != nil {
-		t.Fatalf("applyInPlaceConfiguration: %v", err)
-	}
-	if result.RequeueAfter <= 0 {
-		t.Fatal("expected a retry while CAPI in-place update is active")
-	}
-	if len(apiClient.requests) != 0 {
-		t.Fatal("Talos apply should wait until CAPI update completes")
+			result, err := r.applyInPlaceConfiguration(t.Context(), machine, talosConfig, secret, claim, data, "eth1", "10.71.22.171/27", types.NamespacedName{Namespace: "default", Name: "cluster-a"})
+			if err != nil {
+				t.Fatalf("applyInPlaceConfiguration: %v", err)
+			}
+			if result.RequeueAfter != externalIPRepairInterval {
+				t.Fatalf("expected periodic repair during upgrade, got %s", result.RequeueAfter)
+			}
+			if len(apiClient.requests) != 1 || apiClient.requests[0].Mode != machineapi.ApplyConfigurationRequest_NO_REBOOT {
+				t.Fatalf("expected one NO_REBOOT address repair despite matching stored hash, got %v", apiClient.requests)
+			}
+			for _, want := range []string{"address: 10.71.22.171/27", "address: 192.0.2.10/24", "openstack-installer/abc:v1.13.0", "10.71.22.160/27", "gateway: 10.71.22.161", "metric: 100"} {
+				if !strings.Contains(string(apiClient.requests[0].Data), want) {
+					t.Fatalf("address repair lost expected config %q:\n%s", want, apiClient.requests[0].Data)
+				}
+			}
+
+			if err := r.Get(t.Context(), client.ObjectKeyFromObject(claim), claim); err != nil {
+				t.Fatal(err)
+			}
+			if claim.Status.Phase != ipamClaimPhaseReady {
+				t.Fatalf("claim should be Ready independently of Machine update state, got %v", claim.Status)
+			}
+
+			// The next check still polls while updating, but must not reapply healthy config.
+			if result, err = r.applyInPlaceConfiguration(t.Context(), machine, talosConfig, secret, claim, data, "eth1", "10.71.22.171/27", types.NamespacedName{Namespace: "default", Name: "cluster-a"}); err != nil || result.RequeueAfter != externalIPRepairInterval {
+				t.Fatalf("second check: result=%v err=%v", result, err)
+			}
+			if len(apiClient.requests) != 1 || apiClient.reads != 2 {
+				t.Fatalf("expected active config rechecked without another apply, reads=%d applies=%d", apiClient.reads, len(apiClient.requests))
+			}
+
+			// Simulate a later CABPT apply removing the address while the source hash is unchanged.
+			apiClient.activeConfig = data
+			if _, err = r.applyInPlaceConfiguration(t.Context(), machine, talosConfig, secret, claim, data, "eth1", "10.71.22.171/27", types.NamespacedName{Namespace: "default", Name: "cluster-a"}); err != nil {
+				t.Fatalf("repair after CABPT reapply: %v", err)
+			}
+			if len(apiClient.requests) != 2 {
+				t.Fatal("expected removed IP to be repaired again despite identical stored hash")
+			}
+		})
 	}
 }
 
-func TestApplyInPlaceConfigurationWaitsForPendingUpdateMachineHook(t *testing.T) {
+func TestMachineIPReconcileRepairsBootstrapAndActiveConfigDuringUpdate(t *testing.T) {
 	t.Parallel()
 
-	machine := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "machine-a",
-			Namespace: "default",
-			Annotations: map[string]string{
-				pendingHooksAnnotation: "AfterControlPlaneUpgrade,UpdateMachine",
-			},
-		},
-	}
-	talosConfig := &bootstrapv1.TalosConfig{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-config", Namespace: "default"}}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-bootstrap-data", Namespace: "default"}}
-	claim := &dockyardskubevirtv1.DockyardsIPAMClaim{ObjectMeta: metav1.ObjectMeta{Name: "machine-a-external-node-ip", Namespace: "default"}}
-	r, apiClient := newInPlaceConfigFixture(t, machine, talosConfig, secret, claim)
+	for _, failure := range []string{"none", "read", "apply", "connect"} {
+		t.Run(failure, func(t *testing.T) {
+			machine := &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "machine-a", Namespace: "default", UID: "machine-uid",
+					Labels:      map[string]string{clusterv1.MachineControlPlaneLabel: ""},
+					Annotations: map[string]string{clusterv1.UpdateInProgressAnnotation: "", pendingHooksAnnotation: updateMachineHookName},
+				},
+				Spec: clusterv1.MachineSpec{
+					ClusterName: "cluster-a",
+					Bootstrap: clusterv1.Bootstrap{ConfigRef: clusterv1.ContractVersionedObjectReference{
+						APIGroup: bootstrapv1.GroupVersion.Group, Kind: "TalosConfig", Name: "machine-a-config",
+					}},
+				},
+				Status: clusterv1.MachineStatus{
+					NodeRef:   clusterv1.MachineNodeReference{Name: "machine-a"},
+					Addresses: []clusterv1.MachineAddress{{Type: clusterv1.MachineInternalIP, Address: "192.168.1.10"}},
+				},
+			}
+			cluster := &dockyardsv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "default"},
+				Spec: dockyardsv1.ClusterSpec{Advanced: dockyardsv1.ClusterAdvancedOptions{Kubevirt: dockyardsv1.ClusterKubevirtOptions{Talos: dockyardsv1.ClusterTalosOptions{
+					ExternalNodeInterface: "eth1", ExternalNodeIPv4Subnet: "10.71.22.160/27",
+				}}}},
+			}
+			capiCluster := &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "default"},
+				Spec: clusterv1.ClusterSpec{ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
+					APIGroup: controlplanev1.GroupVersion.Group, Kind: "TalosControlPlane", Name: "controlplane-a",
+				}},
+			}
+			controlPlane := &controlplanev1.TalosControlPlane{
+				ObjectMeta: metav1.ObjectMeta{Name: "controlplane-a", Namespace: "default"},
+				Spec:       controlplanev1.TalosControlPlaneSpec{Replicas: ptr.To[int32](3)},
+			}
+			talosConfig := &bootstrapv1.TalosConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "machine-a-config", Namespace: "default", Annotations: map[string]string{clusterv1.UpdateInProgressAnnotation: ""}},
+				Status:     bootstrapv1.TalosConfigStatus{DataSecretName: ptr.To("machine-a-bootstrap-data")},
+			}
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "machine-a-bootstrap-data", Namespace: "default", Annotations: map[string]string{talosInPlaceConfigHashAnnotation: "cabpt-hash"}},
+				Data:       map[string][]byte{"value": []byte("version: v1alpha1\nmachine:\n  install:\n    image: ghcr.io/siderolabs/installer:v1.13.0\n")},
+			}
+			claim := &dockyardskubevirtv1.DockyardsIPAMClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: machineIPAMClaimName(machine.Name), Namespace: machine.Namespace, OwnerReferences: []metav1.OwnerReference{machineOwnerReference(machine)}},
+				Spec: dockyardskubevirtv1.DockyardsIPAMClaimSpec{
+					ClusterName: "cluster-a", MachineName: machine.Name, Address: "10.71.22.164", Subnet: "10.71.22.160/27", Interface: "eth1", ControlPlane: true,
+				},
+				Status: dockyardskubevirtv1.DockyardsIPAMClaimStatus{Phase: ipamClaimPhasePending, Reason: "WaitingForCAPIUpdate", AppliedConfigHash: "previous-apply"},
+			}
+			credentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a-talosconfig", Namespace: "default"}, Data: map[string][]byte{"talosconfig": []byte("test config")}}
+			r, apiClient := newInPlaceConfigFixture(t, machine, cluster, capiCluster, controlPlane, talosConfig, secret, claim, credentials)
+			switch failure {
+			case "read":
+				apiClient.readErr = errors.New("node rebooting")
+			case "apply":
+				apiClient.err = errors.New("node rebooting")
+			case "connect":
+				r.newTalosClient = func(ctx context.Context, _ []string, _ []byte) (talosMachineClient, error) {
+					deadline, ok := ctx.Deadline()
+					if !ok || time.Until(deadline) > externalIPTalosTimeout {
+						t.Fatal("Talos API calls must have a bounded timeout")
+					}
+					return nil, errors.New("node unreachable")
+				}
+			}
 
-	result, err := r.applyInPlaceConfiguration(context.Background(), machine, talosConfig, secret, claim, []byte("config"), "eth1", "10.71.22.171/27", types.NamespacedName{Namespace: "default", Name: "cluster-a"})
-	if err != nil {
-		t.Fatalf("applyInPlaceConfiguration: %v", err)
-	}
-	if result.RequeueAfter <= 0 {
-		t.Fatal("expected a retry while UpdateMachine hook is pending")
-	}
-	if len(apiClient.requests) != 0 {
-		t.Fatal("Talos apply should wait while UpdateMachine hook is pending")
+			result, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(machine)})
+			if err != nil || result.RequeueAfter != externalIPRepairInterval {
+				t.Fatalf("expected bounded retry during update, got result=%v err=%v", result, err)
+			}
+			if err := r.Get(t.Context(), client.ObjectKeyFromObject(secret), secret); err != nil {
+				t.Fatal(err)
+			}
+			if secret.Annotations[talosInPlaceConfigHashAnnotation] != "cabpt-hash" || !strings.Contains(string(secret.Data["value"]), "address: 10.71.22.164/27") || !strings.Contains(string(secret.Data["value"]), "installer:v1.13.0") {
+				t.Fatal("bootstrap repair must add claimed IP and preserve CABPT hash and installer image")
+			}
+			if err := r.Get(t.Context(), client.ObjectKeyFromObject(claim), claim); err != nil {
+				t.Fatal(err)
+			}
+			if failure == "none" {
+				if claim.Status.Phase != ipamClaimPhaseReady || !strings.Contains(string(apiClient.activeConfig), "address: 10.71.22.164/27") {
+					t.Fatalf("expected Ready claim and repaired active config, got %v", claim.Status)
+				}
+			} else if claim.Status.Phase != ipamClaimPhasePending || claim.Status.Reason != "RetryingIPConfiguration" || claim.Status.AppliedConfigHash != "previous-apply" {
+				t.Fatalf("transient Talos failures must remain retryable without recording successful apply: %v", claim.Status)
+			}
+			if err := r.Get(t.Context(), client.ObjectKeyFromObject(machine), machine); err != nil {
+				t.Fatal(err)
+			}
+			if !hasCAPIUpdateInProgress(machine) || machine.Annotations[pendingHooksAnnotation] != updateMachineHookName {
+				t.Fatal("IP repair must leave CAPI update coordination intact")
+			}
+		})
 	}
 }
 
@@ -587,12 +734,16 @@ func TestApplyInPlaceConfigurationIsIdempotent(t *testing.T) {
 	}
 	talosConfigSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a-talosconfig", Namespace: "default"}, Data: map[string][]byte{"talosconfig": []byte("test config")}}
 	r, apiClient := newInPlaceConfigFixture(t, machine, talosConfig, secret, claim, talosConfigSecret)
+	apiClient.activeConfig = []byte("version: v1alpha1\n---\napiVersion: v1alpha1\nkind: LinkConfig\nname: eth1\nup: true\naddresses:\n  - address: 10.71.22.171/27\n")
 
 	if _, err := r.applyInPlaceConfiguration(context.Background(), machine, talosConfig, secret, claim, data, "eth1", "10.71.22.171/27", types.NamespacedName{Namespace: "default", Name: "cluster-a"}); err != nil {
 		t.Fatalf("applyInPlaceConfiguration: %v", err)
 	}
 	if len(apiClient.requests) != 0 {
-		t.Fatal("expected successful prior apply to be skipped")
+		t.Fatal("expected healthy active config to be left unchanged")
+	}
+	if apiClient.reads != 1 {
+		t.Fatal("stored hash must not suppress active configuration verification")
 	}
 }
 

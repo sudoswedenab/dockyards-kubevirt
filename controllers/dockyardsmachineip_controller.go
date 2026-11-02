@@ -52,6 +52,8 @@ import (
 const (
 	defaultExternalNodeInterface = "eth1"
 	controlPlaneReserveSurge     = 1
+	externalIPRepairInterval     = 5 * time.Second
+	externalIPTalosTimeout       = 10 * time.Second
 
 	ipamClaimNameSuffix = "-external-node-ip"
 
@@ -196,13 +198,6 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := reader.Get(ctx, client.ObjectKeyFromObject(&machine), latestMachine); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if hasCAPIUpdateInProgress(latestMachine, &talosConfig) {
-		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForCAPIUpdate", "waiting for the Cluster API in-place update to finish"); statusErr != nil {
-			return ctrl.Result{}, statusErr
-		}
-
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
 
 	bootstrapDataSecret := &corev1.Secret{}
 	bootstrapDataSecretKey := types.NamespacedName{Namespace: machine.Namespace, Name: *talosConfig.Status.DataSecretName}
@@ -246,14 +241,19 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, nil
 	}
 
-	if hasCAPIUpdateInProgress(latestMachine, &talosConfig) {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
 	result, err := r.applyInPlaceConfiguration(ctx, latestMachine, &talosConfig, bootstrapDataSecret, claim, updatedBootstrapData, config.Interface, desiredAddress, clusterKey)
 	if err != nil {
-		if statusErr := r.setClaimStatus(ctx, claim, ipamClaimPhaseFailed, "ConfigurationApplyFailed", err.Error()); statusErr != nil {
+		phase, reason := ipamClaimPhaseFailed, "ConfigurationApplyFailed"
+		if result.RequeueAfter > 0 {
+			phase, reason = ipamClaimPhasePending, "RetryingIPConfiguration"
+		}
+		if statusErr := r.setClaimStatus(ctx, claim, phase, reason, err.Error()); statusErr != nil {
 			return ctrl.Result{}, fmt.Errorf("%w (also failed to update IPAM claim status: %v)", err, statusErr)
+		}
+		if result.RequeueAfter > 0 {
+			logger.Error(err, "retrying external IP repair during CAPI update", "machine", latestMachine.Name)
+
+			return result, nil
 		}
 	}
 
@@ -310,37 +310,28 @@ func (r *DockyardsMachineIPReconciler) applyInPlaceConfiguration(
 	if err := reader.Get(ctx, client.ObjectKeyFromObject(talosConfig), latestTalosConfig); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if hasCAPIUpdateInProgress(latestMachine, latestTalosConfig) {
-		if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForCAPIUpdate", "waiting for the Cluster API in-place update to finish"); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
 	if !latestMachine.DeletionTimestamp.IsZero() {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	configHash := inPlaceAppliedConfigHash(interfaceName, addressWithPrefix, bootstrapSecret.Annotations[talosInPlaceConfigHashAnnotation], bootstrapData)
-	if claim.Status.AppliedConfigHash == configHash {
-		if err := r.setClaimStatus(ctx, claim, ipamClaimPhaseReady, "ConfigurationApplied", fmt.Sprintf("address %s is applied to the running machine", addressWithPrefix)); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		return ctrl.Result{}, nil
+	result := ctrl.Result{}
+	if hasCAPIUpdateInProgress(latestMachine, latestTalosConfig) {
+		// CABPT may reapply regenerated config without the allocated address. Keep checking
+		// the active config until the update finishes, even if we repaired it before.
+		result.RequeueAfter = externalIPRepairInterval
 	}
 
+	configHash := inPlaceAppliedConfigHash(interfaceName, addressWithPrefix, bootstrapSecret.Annotations[talosInPlaceConfigHashAnnotation], bootstrapData)
 	endpoints := talosMachineEndpoints(latestMachine)
 	if len(endpoints) == 0 {
 		if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "WaitingForMachineAddress", "waiting for a Talos API address on the running machine"); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
-	if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "ApplyingConfiguration", fmt.Sprintf("applying address %s to the running machine", addressWithPrefix)); err != nil {
-		return ctrl.Result{}, err
+		if result.RequeueAfter == 0 {
+			result.RequeueAfter = 10 * time.Second
+		}
+		return result, nil
 	}
 
 	talosConfigSecret := &corev1.Secret{}
@@ -357,15 +348,17 @@ func (r *DockyardsMachineIPReconciler) applyInPlaceConfiguration(
 	if factory == nil {
 		factory = newTalosMachineClient
 	}
-	node, err := factory(ctx, endpoints, talosConfigData)
+	talosCtx, cancel := context.WithTimeout(ctx, externalIPTalosTimeout)
+	defer cancel()
+	node, err := factory(talosCtx, endpoints, talosConfigData)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("create Talos API client for machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+		return result, fmt.Errorf("create Talos API client for machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
 	}
 	defer node.Close() // best effort; ApplyConfiguration's result is authoritative
 
-	activeConfig, err := node.ActiveMachineConfiguration(ctx)
+	activeConfig, err := node.ActiveMachineConfiguration(talosCtx)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("read active Talos configuration from machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+		return result, fmt.Errorf("read active Talos configuration from machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
 	}
 
 	updatedActiveConfig, changed, err := upsertLinkConfigInMachineConfig(activeConfig, interfaceName, addressWithPrefix)
@@ -374,19 +367,23 @@ func (r *DockyardsMachineIPReconciler) applyInPlaceConfiguration(
 	}
 
 	if changed {
-		if _, err := node.ApplyConfiguration(ctx, &machineapi.ApplyConfigurationRequest{
+		if err := r.setClaimStatus(ctx, claim, ipamClaimPhasePending, "ApplyingConfiguration", fmt.Sprintf("applying address %s to the running machine", addressWithPrefix)); err != nil {
+			return ctrl.Result{}, err
+		}
+		if _, err := node.ApplyConfiguration(talosCtx, &machineapi.ApplyConfigurationRequest{
 			Data: updatedActiveConfig,
 			Mode: machineapi.ApplyConfigurationRequest_NO_REBOOT,
 		}); err != nil {
-			return ctrl.Result{}, fmt.Errorf("apply in-place Talos configuration to machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
+			return result, fmt.Errorf("apply in-place Talos configuration to machine %s/%s: %w", latestMachine.Namespace, latestMachine.Name, err)
 		}
+		ctrl.LoggerFrom(ctx).Info("restored external node IP", "machine", latestMachine.Name, "interface", interfaceName, "address", addressWithPrefix)
 	}
 
 	if err := r.setClaimAppliedConfig(ctx, claim, configHash, addressWithPrefix); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func newTalosMachineClient(ctx context.Context, endpoints []string, configData []byte) (talosMachineClient, error) {
@@ -691,10 +688,19 @@ func (r *DockyardsMachineIPReconciler) setClaimStatus(
 }
 
 func (r *DockyardsMachineIPReconciler) setClaimAppliedConfig(ctx context.Context, claim *dockyardskubevirtv1.DockyardsIPAMClaim, hash, addressWithPrefix string) error {
+	message := fmt.Sprintf("address %s is applied to the running machine", addressWithPrefix)
+	if claim.Status.Phase == ipamClaimPhaseReady &&
+		claim.Status.Reason == "ConfigurationApplied" &&
+		claim.Status.Message == message &&
+		claim.Status.ObservedGeneration == claim.Generation &&
+		claim.Status.AppliedConfigHash == hash {
+		return nil
+	}
+
 	claimPatch := client.MergeFromWithOptions(claim.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	claim.Status.Phase = ipamClaimPhaseReady
 	claim.Status.Reason = "ConfigurationApplied"
-	claim.Status.Message = fmt.Sprintf("address %s is applied to the running machine", addressWithPrefix)
+	claim.Status.Message = message
 	claim.Status.ObservedGeneration = claim.Generation
 	claim.Status.AppliedConfigHash = hash
 
