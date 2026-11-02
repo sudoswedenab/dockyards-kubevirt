@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"github.com/sudoswedenab/dockyards-kubevirt/test/mockcrds"
@@ -31,11 +32,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -201,65 +205,376 @@ func TestDockyardsClusterReconciler_ReconcileTLSRouteUsesResolvedParentRef(t *te
 }
 
 func TestDockyardsClusterReconciler_ReconcileKubevirtCluster(t *testing.T) {
-	scheme := runtime.NewScheme()
+	t.Run("waits for capi cluster", func(t *testing.T) {
+		scheme := runtime.NewScheme()
 
-	_ = dockyardsv1.AddToScheme(scheme)
-	_ = providerv1.AddToScheme(scheme)
+		_ = dockyardsv1.AddToScheme(scheme)
+		_ = providerv1.AddToScheme(scheme)
+		_ = clusterv1.AddToScheme(scheme)
 
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	r := DockyardsClusterReconciler{
-		Client: c,
-	}
+		r := DockyardsClusterReconciler{
+			Client: c,
+		}
 
-	cluster := dockyardsv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cluster-kv",
-			Namespace: "tenant-kv",
-			UID:       "cluster-kv-uid",
-			Labels: map[string]string{
-				dockyardsv1.LabelOrganizationName: "org-kv",
+		cluster := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cluster-kv-waiting",
+				Namespace: "tenant-kv",
+				UID:       "cluster-kv-uid",
+				Labels: map[string]string{
+					dockyardsv1.LabelOrganizationName: "org-kv",
+				},
+			},
+		}
+
+		_, err := r.reconcileKubevirtCluster(context.Background(), &cluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		actual := providerv1.KubevirtCluster{}
+		err = c.Get(context.Background(), client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}, &actual)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !conditionsHasReason(cluster.Status.Conditions, CAPIClusterReconciledCondition, WaitingForCAPIClusterReason) {
+			t.Fatalf("expected %s condition with reason %s", CAPIClusterReconciledCondition, WaitingForCAPIClusterReason)
+		}
+
+		if actual.Spec.ControlPlaneServiceTemplate.Spec.Type != corev1.ServiceTypeClusterIP {
+			t.Fatalf("unexpected control plane service type: %q", actual.Spec.ControlPlaneServiceTemplate.Spec.Type)
+		}
+	})
+
+	t.Run("patches infrastructure ref without adding capi ownership", func(t *testing.T) {
+		scheme := runtime.NewScheme()
+
+		_ = dockyardsv1.AddToScheme(scheme)
+		_ = providerv1.AddToScheme(scheme)
+		_ = clusterv1.AddToScheme(scheme)
+
+		dockyardsCluster := dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cluster-kv-patch",
+				Namespace: "tenant-kv",
+				UID:       types.UID("cluster-kv-patch-uid"),
+				Labels: map[string]string{
+					dockyardsv1.LabelOrganizationName: "org-kv",
+				},
+			},
+		}
+
+		existingControlPlaneRef := clusterv1.ContractVersionedObjectReference{
+			APIGroup: "controlplane.cluster.x-k8s.io",
+			Kind:     "TalosControlPlane",
+			Name:     "cp-kv",
+		}
+
+		capiCluster := clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      dockyardsCluster.Name,
+				Namespace: dockyardsCluster.Namespace,
+				UID:       types.UID("capi-cluster-kv-uid"),
+			},
+			Spec: clusterv1.ClusterSpec{
+				ControlPlaneRef: existingControlPlaneRef,
+			},
+		}
+
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&capiCluster).Build()
+
+		r := DockyardsClusterReconciler{
+			Client: c,
+		}
+
+		_, err := r.reconcileKubevirtCluster(context.Background(), &dockyardsCluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		actualCAPICluster := clusterv1.Cluster{}
+		err = c.Get(context.Background(), client.ObjectKey{Name: dockyardsCluster.Name, Namespace: dockyardsCluster.Namespace}, &actualCAPICluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if actualCAPICluster.Spec.InfrastructureRef.Name != dockyardsCluster.Name {
+			t.Fatalf("expected infrastructureRef.name %q, got %q", dockyardsCluster.Name, actualCAPICluster.Spec.InfrastructureRef.Name)
+		}
+
+		if actualCAPICluster.Spec.InfrastructureRef.Kind != "KubevirtCluster" {
+			t.Fatalf("expected infrastructureRef.kind %q, got %q", "KubevirtCluster", actualCAPICluster.Spec.InfrastructureRef.Kind)
+		}
+
+		if actualCAPICluster.Spec.ControlPlaneRef.Name != existingControlPlaneRef.Name {
+			t.Fatalf("expected controlPlaneRef.name to stay %q, got %q", existingControlPlaneRef.Name, actualCAPICluster.Spec.ControlPlaneRef.Name)
+		}
+
+		actualKubevirtCluster := providerv1.KubevirtCluster{}
+		err = c.Get(context.Background(), client.ObjectKey{Name: dockyardsCluster.Name, Namespace: dockyardsCluster.Namespace}, &actualKubevirtCluster)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(actualKubevirtCluster.OwnerReferences) != 1 {
+			t.Fatalf("expected only the dockyards owner reference, got %d", len(actualKubevirtCluster.OwnerReferences))
+		}
+
+		ownerReference := metav1.GetControllerOf(&actualKubevirtCluster)
+		if ownerReference != nil {
+			t.Fatalf("expected no controller owner reference, got %#v", ownerReference)
+		}
+
+		dockyardsOwnerReference, err := apiutil.FindOwnerReference(&actualKubevirtCluster, dockyardsv1.ClusterKind)
+		if err != nil {
+			t.Fatalf("expected dockyards owner reference: %v", err)
+		}
+
+		if dockyardsOwnerReference.Name != dockyardsCluster.Name {
+			t.Fatalf("expected dockyards owner reference name %q, got %q", dockyardsCluster.Name, dockyardsOwnerReference.Name)
+		}
+
+		if !conditionsHasReason(dockyardsCluster.Status.Conditions, CAPIClusterReconciledCondition, ReconciledReason) {
+			t.Fatalf("expected %s condition with reason %s", CAPIClusterReconciledCondition, ReconciledReason)
+		}
+	})
+}
+
+func TestDockyardsClusterReconciler_ReconcileKubevirtClusterOwnerReferences(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		setup           func(*providerv1.KubevirtCluster)
+		mutate          func(*providerv1.KubevirtCluster)
+		expectedPatches int
+	}{
+		{
+			name: "preserves existing controller owner without writes",
+		},
+		{
+			name: "preserves non-controller capi owner without writes",
+			setup: func(cluster *providerv1.KubevirtCluster) {
+				cluster.OwnerReferences[1].Controller = ptr.To(false)
+				cluster.OwnerReferences[1].BlockOwnerDeletion = nil
 			},
 		},
-	}
+		{
+			name: "preserves capi owner with unset controller without writes",
+			setup: func(cluster *providerv1.KubevirtCluster) {
+				cluster.OwnerReferences[1].Controller = nil
+				cluster.OwnerReferences[1].BlockOwnerDeletion = nil
+			},
+		},
+		{
+			name: "does not add missing capi owner",
+			setup: func(cluster *providerv1.KubevirtCluster) {
+				cluster.OwnerReferences = append(cluster.OwnerReferences[:1], cluster.OwnerReferences[2:]...)
+			},
+		},
+		{
+			name: "repairs dockyards owner without replacing other owners",
+			mutate: func(cluster *providerv1.KubevirtCluster) {
+				cluster.OwnerReferences[0].UID = "stale-dockyards-uid"
+				cluster.OwnerReferences[0].BlockOwnerDeletion = ptr.To(false)
+			},
+			expectedPatches: 1,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = dockyardsv1.AddToScheme(scheme)
+			_ = providerv1.AddToScheme(scheme)
+			_ = clusterv1.AddToScheme(scheme)
 
-	_, err := r.reconcileKubevirtCluster(context.Background(), &cluster)
-	if err != nil {
-		t.Fatal(err)
-	}
+			dockyardsCluster := dockyardsv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cluster-kv",
+					Namespace: "tenant-kv",
+					UID:       "dockyards-uid",
+					Labels: map[string]string{
+						dockyardsv1.LabelOrganizationName: "org-kv",
+					},
+				},
+			}
+			capiCluster := clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dockyardsCluster.Name,
+					Namespace: dockyardsCluster.Namespace,
+					UID:       "capi-uid",
+				},
+				Spec: clusterv1.ClusterSpec{
+					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+						APIGroup: providerv1.GroupVersion.Group,
+						Kind:     "KubevirtCluster",
+						Name:     dockyardsCluster.Name,
+					},
+				},
+			}
+			kubevirtCluster := providerv1.KubevirtCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      dockyardsCluster.Name,
+					Namespace: dockyardsCluster.Namespace,
+					Labels: map[string]string{
+						dockyardsv1.LabelClusterName:      dockyardsCluster.Name,
+						dockyardsv1.LabelOrganizationName: "org-kv",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         dockyardsv1.GroupVersion.String(),
+							Kind:               dockyardsv1.ClusterKind,
+							Name:               dockyardsCluster.Name,
+							UID:                dockyardsCluster.UID,
+							BlockOwnerDeletion: ptr.To(true),
+						},
+						{
+							APIVersion:         clusterv1.GroupVersion.String(),
+							Kind:               "Cluster",
+							Name:               capiCluster.Name,
+							UID:                capiCluster.UID,
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
+						},
+						{
+							APIVersion: "example.com/v1",
+							Kind:       "OtherOwner",
+							Name:       "other-owner",
+							UID:        "other-uid",
+						},
+					},
+				},
+				Spec: providerv1.KubevirtClusterSpec{
+					ControlPlaneServiceTemplate: providerv1.ControlPlaneServiceTemplate{
+						Spec: providerv1.ServiceSpecTemplate{
+							Type: corev1.ServiceTypeClusterIP,
+						},
+					},
+				},
+			}
+			if tt.setup != nil {
+				tt.setup(&kubevirtCluster)
+			}
+			expectedOwnerReferences := kubevirtCluster.DeepCopy().OwnerReferences
+			if tt.mutate != nil {
+				tt.mutate(&kubevirtCluster)
+			}
 
-	actual := providerv1.KubevirtCluster{}
-	err = c.Get(context.Background(), client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}, &actual)
-	if err != nil {
-		t.Fatal(err)
-	}
+			var creates, updates, patches int
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(&capiCluster, &kubevirtCluster).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						creates++
+						return c.Create(ctx, obj, opts...)
+					},
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						updates++
+						return c.Update(ctx, obj, opts...)
+					},
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						patches++
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+			r := DockyardsClusterReconciler{Client: c}
 
-	if actual.Spec.ControlPlaneServiceTemplate.Spec.Type != corev1.ServiceTypeClusterIP {
-		t.Fatalf("unexpected control plane service type: %q", actual.Spec.ControlPlaneServiceTemplate.Spec.Type)
-	}
+			for attempt := range 2 {
+				creates, updates, patches = 0, 0, 0
+				_, err := r.reconcileKubevirtCluster(ctx, &dockyardsCluster)
+				if err != nil {
+					t.Fatal(err)
+				}
 
-	if actual.Labels[dockyardsv1.LabelClusterName] != cluster.Name {
-		t.Fatalf("expected %s label %q, got %q", dockyardsv1.LabelClusterName, cluster.Name, actual.Labels[dockyardsv1.LabelClusterName])
-	}
+				expectedPatches := 0
+				if attempt == 0 {
+					expectedPatches = tt.expectedPatches
+				}
+				if creates != 0 || updates != 0 || patches != expectedPatches {
+					t.Fatalf("reconcile %d: expected 0 creates, 0 updates, %d patches; got %d creates, %d updates, %d patches",
+						attempt, expectedPatches, creates, updates, patches)
+				}
 
-	if actual.Labels[dockyardsv1.LabelOrganizationName] != cluster.Labels[dockyardsv1.LabelOrganizationName] {
-		t.Fatalf("expected %s label %q, got %q", dockyardsv1.LabelOrganizationName, cluster.Labels[dockyardsv1.LabelOrganizationName], actual.Labels[dockyardsv1.LabelOrganizationName])
+				var actual providerv1.KubevirtCluster
+				err = c.Get(ctx, client.ObjectKeyFromObject(&kubevirtCluster), &actual)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if diff := cmp.Diff(expectedOwnerReferences, actual.OwnerReferences); diff != "" {
+					t.Fatalf("unexpected owner references (-want +got): %s", diff)
+				}
+			}
+		})
 	}
+}
 
-	if len(actual.OwnerReferences) != 1 {
-		t.Fatalf("expected one owner reference, got %d", len(actual.OwnerReferences))
-	}
+func TestDockyardsClusterReconciler_CAPIClusterToDockyardsCluster(t *testing.T) {
+	r := DockyardsClusterReconciler{}
 
-	expectedOwnerRef := metav1.OwnerReference{
-		APIVersion: dockyardsv1.GroupVersion.String(),
-		Kind:       dockyardsv1.ClusterKind,
-		Name:       cluster.Name,
-		UID:        cluster.UID,
-	}
+	t.Run("uses dockyards cluster label", func(t *testing.T) {
+		capiCluster := &clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cluster-from-capi",
+				Namespace: "tenant-a",
+				Labels: map[string]string{
+					dockyardsv1.LabelClusterName: "cluster-from-label",
+				},
+			},
+		}
 
-	if !cmp.Equal(actual.OwnerReferences[0], expectedOwnerRef) {
-		t.Fatalf("unexpected owner reference diff: %s", cmp.Diff(expectedOwnerRef, actual.OwnerReferences[0]))
-	}
+		requests := r.capiClusterToDockyardsCluster(context.Background(), capiCluster)
+		expected := []ctrl.Request{{
+			NamespacedName: types.NamespacedName{Name: "cluster-from-label", Namespace: "tenant-a"},
+		}}
+
+		if diff := cmp.Diff(expected, requests); diff != "" {
+			t.Fatalf("unexpected requests (-want +got): %s", diff)
+		}
+	})
+
+	t.Run("falls back to dockyards owner reference", func(t *testing.T) {
+		capiCluster := &clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cluster-from-capi",
+				Namespace: "tenant-b",
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: dockyardsv1.GroupVersion.String(),
+					Kind:       dockyardsv1.ClusterKind,
+					Name:       "cluster-from-owner",
+				}},
+			},
+		}
+
+		requests := r.capiClusterToDockyardsCluster(context.Background(), capiCluster)
+		expected := []ctrl.Request{{
+			NamespacedName: types.NamespacedName{Name: "cluster-from-owner", Namespace: "tenant-b"},
+		}}
+
+		if diff := cmp.Diff(expected, requests); diff != "" {
+			t.Fatalf("unexpected requests (-want +got): %s", diff)
+		}
+	})
+
+	t.Run("falls back to capi cluster name", func(t *testing.T) {
+		capiCluster := &clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cluster-from-name",
+				Namespace: "tenant-c",
+			},
+		}
+
+		requests := r.capiClusterToDockyardsCluster(context.Background(), capiCluster)
+		expected := []ctrl.Request{{
+			NamespacedName: types.NamespacedName{Name: "cluster-from-name", Namespace: "tenant-c"},
+		}}
+
+		if diff := cmp.Diff(expected, requests); diff != "" {
+			t.Fatalf("unexpected requests (-want +got): %s", diff)
+		}
+	})
 }
 
 func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
@@ -592,4 +907,14 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 			t.Errorf("diff: %s", cmp.Diff(expected, cluster, ignoreFields))
 		}
 	})
+}
+
+func conditionsHasReason(conditions []metav1.Condition, conditionType, reason string) bool {
+	for _, condition := range conditions {
+		if condition.Type == conditionType && condition.Reason == reason {
+			return true
+		}
+	}
+
+	return false
 }

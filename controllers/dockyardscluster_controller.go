@@ -23,18 +23,25 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
+	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/ptr"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
@@ -42,11 +49,12 @@ import (
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters/status,verbs=patch
 // +kubebuilder:rbac:groups=dockyards.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dockyards.io,resources=clusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=dockyards.io,resources=workloads,verbs=create;get;list;patch;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tlsroutes,verbs=create;get;list;patch;watch
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=create;delete;get;list;patch;watch
 
 type DockyardsClusterReconciler struct {
 	client.Client
@@ -145,22 +153,18 @@ func (r *DockyardsClusterReconciler) reconcileKubevirtCluster(ctx context.Contex
 		kubevirtCluster.Labels[dockyardsv1.LabelClusterName] = dockyardsCluster.Name
 		kubevirtCluster.Labels[dockyardsv1.LabelOrganizationName] = dockyardsCluster.Labels[dockyardsv1.LabelOrganizationName]
 
-		kubevirtCluster.OwnerReferences = []metav1.OwnerReference{
-			{
-				APIVersion: dockyardsv1.GroupVersion.String(),
-				Kind:       dockyardsv1.ClusterKind,
-				Name:       dockyardsCluster.Name,
-				UID:        dockyardsCluster.UID,
-			},
-		}
-
 		kubevirtCluster.Spec.ControlPlaneServiceTemplate = providerv1.ControlPlaneServiceTemplate{
 			Spec: providerv1.ServiceSpecTemplate{
 				Type: corev1.ServiceTypeClusterIP,
 			},
 		}
 
-		return nil
+		return controllerutil.SetOwnerReference(
+			dockyardsCluster,
+			&kubevirtCluster,
+			r.Scheme(),
+			controllerutil.WithBlockOwnerDeletion(true),
+		)
 	})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -169,7 +173,61 @@ func (r *DockyardsClusterReconciler) reconcileKubevirtCluster(ctx context.Contex
 	if operationResult != controllerutil.OperationResultNone {
 		logger.Info("reconciled kubevirt cluster", "result", operationResult)
 	}
+
+	capiCluster := clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dockyardsCluster.Name,
+			Namespace: dockyardsCluster.Namespace,
+		},
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(&capiCluster), &capiCluster)
+	if apierrors.IsNotFound(err) {
+		conditions.MarkFalse(dockyardsCluster, CAPIClusterReconciledCondition, WaitingForCAPIClusterReason, "")
+
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
+		conditions.MarkFalse(dockyardsCluster, CAPIClusterReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, err
+	}
+
+	patchHelper, err := patch.NewHelper(&capiCluster, r.Client)
+	if err != nil {
+		conditions.MarkFalse(dockyardsCluster, CAPIClusterReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, err
+	}
+
+	desiredInfrastructureRef := clusterv1.ContractVersionedObjectReference{
+		APIGroup: providerv1.GroupVersion.Group,
+		Kind:     "KubevirtCluster",
+		Name:     dockyardsCluster.Name,
+	}
+
+	if !clusterInfrastructureRefMatches(capiCluster.Spec.InfrastructureRef, desiredInfrastructureRef) {
+		capiCluster.Spec.InfrastructureRef = desiredInfrastructureRef
+
+		err = patchHelper.Patch(ctx, &capiCluster)
+		if err != nil {
+			conditions.MarkFalse(dockyardsCluster, CAPIClusterReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("patched capi cluster infrastructure reference")
+	}
+
+	// Upstream CAPI reconciles its owner reference on the referenced KubevirtCluster.
+	conditions.MarkTrue(dockyardsCluster, CAPIClusterReconciledCondition, ReconciledReason, "")
+
 	return ctrl.Result{}, nil
+}
+
+func clusterInfrastructureRefMatches(current, desired clusterv1.ContractVersionedObjectReference) bool {
+	return current.APIGroup == desired.APIGroup && current.Kind == desired.Kind && current.Name == desired.Name
 }
 
 func (r *DockyardsClusterReconciler) reconcileAPIEndpoint(_ context.Context, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
@@ -363,6 +421,49 @@ func (r *DockyardsClusterReconciler) reconcileTLSRoute(ctx context.Context, dock
 	return ctrl.Result{}, nil
 }
 
+func (r *DockyardsClusterReconciler) capiClusterToDockyardsCluster(_ context.Context, obj client.Object) []ctrl.Request {
+	capiCluster, ok := obj.(*clusterv1.Cluster)
+	if !ok {
+		return nil
+	}
+
+	clusterName := capiCluster.Labels[dockyardsv1.LabelClusterName]
+	if clusterName == "" {
+		ownerReference, err := apiutil.FindOwnerReference(capiCluster, dockyardsv1.ClusterKind)
+		if err == nil {
+			clusterName = ownerReference.Name
+		}
+	}
+
+	if clusterName == "" {
+		clusterName = capiCluster.Name
+	}
+
+	return []ctrl.Request{{
+		NamespacedName: types.NamespacedName{
+			Namespace: capiCluster.Namespace,
+			Name:      clusterName,
+		},
+	}}
+}
+
+func capiClusterWatchPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldCluster, oldOK := e.ObjectOld.(*clusterv1.Cluster)
+			newCluster, newOK := e.ObjectNew.(*clusterv1.Cluster)
+			if !oldOK || !newOK {
+				return true
+			}
+
+			return oldCluster.Generation != newCluster.Generation
+		},
+	}
+}
+
 func (r *DockyardsClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	scheme := mgr.GetScheme()
 
@@ -374,6 +475,11 @@ func (r *DockyardsClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := ctrl.NewControllerManagedBy(mgr).
 		Named("dockyards/cluster").
 		For(&dockyardsv1.Cluster{}).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(r.capiClusterToDockyardsCluster),
+			builder.WithPredicates(capiClusterWatchPredicate()),
+		).
 		Complete(r)
 	if err != nil {
 		return err

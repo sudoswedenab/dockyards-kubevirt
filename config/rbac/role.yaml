@@ -154,6 +154,12 @@ rules:
 - apiGroups:
   - dockyards.io
   resources:
+  - clusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - dockyards.io
+  resources:
   - clusters/status
   verbs:
   - patch
@@ -278,6 +284,7 @@ rules:
   - kubevirtclusters
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
