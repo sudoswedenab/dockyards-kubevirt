@@ -360,7 +360,10 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 		expected := dockyardsv1.Workload{
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{
-					dockyardsv1.LabelClusterName: cluster.Name,
+					dockyardsv1.LabelClusterName:          cluster.Name,
+					dockyardsv1.LabelOrganizationName:     cluster.Namespace,
+					dockyardsv1.LabelWorkloadName:         cluster.Name + "-ingress-nginx",
+					dockyardsv1.LabelWorkloadTemplateName: "ingress-nginx",
 				},
 				Name:      cluster.Name + "-ingress-nginx",
 				Namespace: namespace.Name,
@@ -434,7 +437,10 @@ func TestDockyardsClusterReconciler_ReconcileIngressNginx(t *testing.T) {
 		expected := dockyardsv1.Workload{
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{
-					dockyardsv1.LabelClusterName: cluster.Name,
+					dockyardsv1.LabelClusterName:          cluster.Name,
+					dockyardsv1.LabelOrganizationName:     cluster.Namespace,
+					dockyardsv1.LabelWorkloadName:         cluster.Name + "-ingress-nginx",
+					dockyardsv1.LabelWorkloadTemplateName: "ingress-nginx",
 				},
 				Name:      cluster.Name + "-ingress-nginx",
 				Namespace: namespace.Name,
