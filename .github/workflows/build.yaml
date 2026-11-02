@@ -14,12 +14,12 @@
 
 name: build
 on:
-  push:
-    branches:
-      - feat/*
-      - fix/*
-      - refactor/*
-      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
     paths:
       - '**/*.go'
       - go.mod
@@ -35,16 +35,56 @@ on:
       - internal/**
       - test/**
   workflow_dispatch:
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   id-token: write
   contents: read
 jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sudoswedenab/sudo-actions/commitlint@main
+
+  generate:
+    needs:
+      - commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+      - uses: sudoswedenab/sudo-actions/golang-generate@main
+
+  lint:
+    needs:
+      - generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8.0.0
+        with:
+          version: v2.13.2
+
+  test:
+    needs:
+      - lint
+    uses: sudoswedenab/sudo-actions/.github/workflows/golang-envtest.yaml@main
+
   build:
+    needs:
+      - test
     runs-on: ubuntu-latest
     steps:
       - id: prep
         run: |
-          branch=${GITHUB_REF##*/}
+          raw_branch=${GITHUB_HEAD_REF:-${GITHUB_REF##*/}}
+          branch=${raw_branch//\//-}
           sha=${GITHUB_SHA::8}
           ts=$(date +%s)
           echo "buildid=${branch}-${sha}-${ts}" >> "$GITHUB_OUTPUT"
