@@ -154,7 +154,7 @@ Notes:
 
 By default, Talos bootstrap configuration is generated using the global `--talos-version-default` value (defaults to `v1.12`).
 
-To override this per Dockyards cluster, set `spec.advanced.kubevirt.talos.talosVersion` on the owning `dockyards.io/v1alpha3 Cluster`:
+For testing, the config compatibility version and optional Talos OS upgrade image are read from annotations on the owning `dockyards.io/v1alpha3 Cluster`:
 
 ```yaml
 apiVersion: dockyards.io/v1alpha3
@@ -162,17 +162,18 @@ kind: Cluster
 metadata:
   name: example
   namespace: customer-a
-spec:
-  advanced:
-    kubevirt:
-      talos:
-        talosVersion: v1.12.9
+  annotations:
+    talos.dockyards.io/talos-version: v1.12
+    talos.dockyards.io/upgrade-installer-image: factory.talos.dev/metal-installer/<schematic-id>:v1.13.0
 ```
 
 Notes:
-- Resolution order is: `spec.advanced.kubevirt.talos.talosVersion` -> `--talos-version-default` -> built-in `v1.12`.
-- Invalid `talosVersion` values fail reconciliation (no silent fallback).
-- Worker Talos templates are immutable; when the effective Talos version changes, the controller creates a new `TalosConfigTemplate` revision and updates `MachineDeployment` to reference it.
+- `talos.dockyards.io/talos-version` sets the Talos configuration compatibility contract. If missing or empty, resolution is `--talos-version-default` -> built-in `v1.12`.
+- `talos.dockyards.io/upgrade-installer-image` is optional and sets the Talos installer container image used by CABPT to upgrade existing nodes. Use an explicit, full Talos version image tag (for example, `v1.13.0`).
+- Keep the config compatibility version at `v1.12` while upgrading the OS to `v1.13`; advance the contract separately after the nodes have upgraded.
+- `installImage.url` above remains a CDI boot-disk image URL for provisioning VMs; it is not the installer image used to upgrade a running node.
+- Invalid non-empty annotation values fail reconciliation (no silent fallback).
+- Worker Talos templates are immutable; when the effective Talos config changes, the controller creates a new `TalosConfigTemplate` revision and updates `MachineDeployment` to reference it.
 
 #### External node IP configuration on running machines
 
@@ -299,7 +300,7 @@ The controller reads selected keys from the Dockyards ConfigMap (configured via 
 
 Note: if a specific Dockyards cluster should use a different root disk storage class than the global `--data-volume-storage-class-name`, set `spec.advanced.kubevirt.dataVolumeStorageClassName` on that cluster.
 
-Note: if a specific Dockyards cluster should use a different Talos config compatibility contract than the global `--talos-version-default`, set `spec.advanced.kubevirt.talos.talosVersion` on that cluster.
+Note: for testing, a Dockyards Cluster can override Talos config compatibility and set the optional OS upgrade target with the `talos.dockyards.io/talos-version` and `talos.dockyards.io/upgrade-installer-image` annotations.
 
 Note: if a specific Dockyards cluster should bind workload `HTTPRoute`/`TLSRoute` to a different Gateway than the global `--gateway-name`/`--gateway-namespace`, set `spec.advanced.gateway.parentRef.name` and `spec.advanced.gateway.parentRef.namespace`.
 

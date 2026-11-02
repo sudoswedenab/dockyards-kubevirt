@@ -201,6 +201,123 @@ func TestNormalizeAndValidateTalosVersion(t *testing.T) {
 	})
 }
 
+func TestResolveTalosVersionFromAnnotation(t *testing.T) {
+	t.Parallel()
+
+	reconciler := DockyardsNodePoolReconciler{TalosVersionDefault: "1.12.4"}
+
+	t.Run("uses annotation override", func(t *testing.T) {
+		got, err := reconciler.resolveTalosVersion(&dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationTalosVersion: "1.13.2"}},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "v1.13.2" {
+			t.Fatalf("unexpected Talos version: got %q, want %q", got, "v1.13.2")
+		}
+	})
+
+	t.Run("uses configured default when annotation is absent or empty", func(t *testing.T) {
+		for _, annotations := range []map[string]string{
+			nil,
+			{AnnotationTalosVersion: "  "},
+		} {
+			got, err := reconciler.resolveTalosVersion(&dockyardsv1.Cluster{ObjectMeta: metav1.ObjectMeta{Annotations: annotations}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != "v1.12.4" {
+				t.Fatalf("unexpected Talos version: got %q, want %q", got, "v1.12.4")
+			}
+		}
+	})
+
+	t.Run("rejects invalid annotation", func(t *testing.T) {
+		_, err := reconciler.resolveTalosVersion(&dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationTalosVersion: "banana"}},
+		})
+		if err == nil {
+			t.Fatal("expected invalid Talos version annotation to fail")
+		}
+		if !strings.Contains(err.Error(), AnnotationTalosVersion) {
+			t.Fatalf("expected error to identify annotation %q, got %v", AnnotationTalosVersion, err)
+		}
+	})
+}
+
+func TestResolveUpgradeInstallerImage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("optional annotation", func(t *testing.T) {
+		for _, cluster := range []*dockyardsv1.Cluster{
+			nil,
+			{},
+			{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationUpgradeInstallerImage: "  "}}},
+		} {
+			got, err := resolveUpgradeInstallerImage(cluster)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != "" {
+				t.Fatalf("expected empty image when annotation is absent, got %q", got)
+			}
+		}
+	})
+
+	t.Run("accepts Image Factory reference with full Talos version tag", func(t *testing.T) {
+		image := "factory.talos.dev/metal-installer/abc123:v1.13.0"
+		got, err := resolveUpgradeInstallerImage(&dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationUpgradeInstallerImage: image}},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != image {
+			t.Fatalf("unexpected installer image: got %q, want %q", got, image)
+		}
+	})
+
+	t.Run("rejects invalid and unversioned image references", func(t *testing.T) {
+		for _, image := range []string{"not an image", "ghcr.io/siderolabs/installer:latest", "ghcr.io/siderolabs/installer:v1.13"} {
+			_, err := resolveUpgradeInstallerImage(&dockyardsv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationUpgradeInstallerImage: image}},
+			})
+			if err == nil {
+				t.Errorf("expected image %q to be rejected", image)
+				continue
+			}
+			if !strings.Contains(err.Error(), AnnotationUpgradeInstallerImage) {
+				t.Errorf("expected error to identify annotation %q, got %v", AnnotationUpgradeInstallerImage, err)
+			}
+		}
+	})
+
+	t.Run("adds authoritative machine install image patch", func(t *testing.T) {
+		const image = "factory.talos.dev/metal-installer/abc123:v1.13.0"
+		patches := StrategicPatches{"machine:\n  install:\n    image: old-image:v1.12.0\n"}
+		err := addUpgradeInstallerImagePatch(&dockyardsv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationUpgradeInstallerImage: image}},
+		}, &patches)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(patches) != 2 {
+			t.Fatalf("expected image patch appended after existing patches, got %d patches", len(patches))
+		}
+
+		var actual map[string]any
+		if err := yaml.Unmarshal([]byte(patches[len(patches)-1]), &actual); err != nil {
+			t.Fatalf("unmarshal installer image patch: %v", err)
+		}
+		machine := actual["machine"].(map[string]any)
+		install := machine["install"].(map[string]any)
+		if got := install["image"]; got != image {
+			t.Fatalf("unexpected installer image patch: got %v, want %q", got, image)
+		}
+	})
+}
+
 func TestDockyardsNodePoolReconciler_ReconcileMachineTemplate(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("no kubebuilder assets configured")
@@ -1728,7 +1845,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		}
 	})
 
-	t.Run("test talos control plane cluster talos version override", func(t *testing.T) {
+	t.Run("test talos control plane cluster annotations override version and installer image", func(t *testing.T) {
 		reconcilerWithVersionDefault := reconciler
 		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12.9"
 
@@ -1754,7 +1871,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		setClusterTalosVersionOverride(ctx, t, c, owner, "1.13.2")
+		setClusterTalosVersionOverride(ctx, t, c, &owner, "1.13.2")
+		setClusterAnnotation(ctx, t, c, &owner, AnnotationUpgradeInstallerImage, "factory.talos.dev/metal-installer/abc123:v1.13.0")
 
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1781,6 +1899,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 		if got, want := actual.Spec.ControlPlaneConfig.ControlPlaneConfig.TalosVersion, "v1.13.2"; got != want {
 			t.Fatalf("unexpected talos version: got %q, want %q", got, want)
 		}
+		if !strategicPatchesContainInstallerImage(actual.Spec.ControlPlaneConfig.ControlPlaneConfig.StrategicPatches, "factory.talos.dev/metal-installer/abc123:v1.13.0") {
+			t.Fatalf("expected TalosControlPlane strategic patches to include upgrade installer image, got %v", actual.Spec.ControlPlaneConfig.ControlPlaneConfig.StrategicPatches)
+		}
 	})
 
 	t.Run("test talos control plane invalid cluster talos version returns error", func(t *testing.T) {
@@ -1806,7 +1927,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		setClusterTalosVersionOverride(ctx, t, c, owner, "banana")
+		setClusterTalosVersionOverride(ctx, t, c, &owner, "banana")
 
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -3035,7 +3156,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 	})
 
-	t.Run("test config template cluster talos version override", func(t *testing.T) {
+	t.Run("test config template cluster annotations override version and installer image", func(t *testing.T) {
 		reconcilerWithVersionDefault := reconciler
 		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12.9"
 
@@ -3051,7 +3172,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		setClusterTalosVersionOverride(ctx, t, c, owner, "1.13.4")
+		setClusterTalosVersionOverride(ctx, t, c, &owner, "1.13.4")
+		setClusterAnnotation(ctx, t, c, &owner, AnnotationUpgradeInstallerImage, "factory.talos.dev/metal-installer/abc123:v1.13.0")
 
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -3079,6 +3201,9 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		if got, want := actual.Spec.Template.Spec.TalosVersion, "v1.13.4"; got != want {
 			t.Fatalf("unexpected TalosVersion: got %q, want %q", got, want)
 		}
+		if !strategicPatchesContainInstallerImage(actual.Spec.Template.Spec.StrategicPatches, "factory.talos.dev/metal-installer/abc123:v1.13.0") {
+			t.Fatalf("expected TalosConfigTemplate strategic patches to include upgrade installer image, got %v", actual.Spec.Template.Spec.StrategicPatches)
+		}
 	})
 
 	t.Run("test config template invalid cluster talos version returns error", func(t *testing.T) {
@@ -3094,7 +3219,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		setClusterTalosVersionOverride(ctx, t, c, owner, "banana")
+		setClusterTalosVersionOverride(ctx, t, c, &owner, "banana")
 
 		nodePool := dockyardsv1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
@@ -3148,7 +3273,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		}
 	})
 
-	t.Run("test config template version change creates new immutable revision", func(t *testing.T) {
+	t.Run("test config template annotation changes create new immutable revision", func(t *testing.T) {
 		reconcilerWithVersionDefault := reconciler
 		reconcilerWithVersionDefault.TalosVersionDefault = "v1.12"
 
@@ -3209,7 +3334,7 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatalf("template name changed without config changes: got %q, want %q", got, want)
 		}
 
-		setClusterTalosVersionOverride(ctx, t, c, owner, "v1.12.9")
+		setClusterAnnotation(ctx, t, c, &owner, AnnotationUpgradeInstallerImage, "ghcr.io/siderolabs/installer:v1.13.0")
 
 		_, upgradedTemplateName, err := reconcilerWithVersionDefault.reconcileTalosConfigTemplate(ctx, &nodePool, &owner)
 		if err != nil {
@@ -3250,8 +3375,11 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 			t.Fatal(err)
 		}
 
-		if got, want := upgradedTemplate.Spec.Template.Spec.TalosVersion, "v1.12.9"; got != want {
+		if got, want := upgradedTemplate.Spec.Template.Spec.TalosVersion, "v1.12"; got != want {
 			t.Fatalf("unexpected upgraded template TalosVersion: got %q, want %q", got, want)
+		}
+		if !strategicPatchesContainInstallerImage(upgradedTemplate.Spec.Template.Spec.StrategicPatches, "ghcr.io/siderolabs/installer:v1.13.0") {
+			t.Fatalf("expected upgraded template to include installer image annotation, got %v", upgradedTemplate.Spec.Template.Spec.StrategicPatches)
 		}
 	})
 
@@ -4301,35 +4429,57 @@ func TestDockyardsNodePoolReconciler_ReconcileMachineTemplateMultus(t *testing.T
 	})
 }
 
-func setClusterTalosVersionOverride(ctx context.Context, t *testing.T, c client.Client, owner dockyardsv1.Cluster, value string) {
+func setClusterTalosVersionOverride(ctx context.Context, t *testing.T, c client.Client, owner *dockyardsv1.Cluster, value string) {
+	t.Helper()
+	setClusterAnnotation(ctx, t, c, owner, AnnotationTalosVersion, value)
+}
+
+func setClusterAnnotation(ctx context.Context, t *testing.T, c client.Client, owner *dockyardsv1.Cluster, key, value string) {
 	t.Helper()
 
-	u := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      owner.Name,
-				"namespace": owner.Namespace,
-			},
-		},
-	}
-
-	err := c.Get(ctx, client.ObjectKeyFromObject(&u), &u)
+	var current dockyardsv1.Cluster
+	err := c.Get(ctx, client.ObjectKeyFromObject(owner), &current)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	patch := client.MergeFrom(u.DeepCopy())
-	err = unstructured.SetNestedField(u.Object, value, "spec", "advanced", "kubevirt", "talos", clusterTalosVersionKey)
+	patch := client.MergeFrom(current.DeepCopy())
+	if current.Annotations == nil {
+		current.Annotations = map[string]string{}
+	}
+	current.Annotations[key] = value
+
+	err = c.Patch(ctx, &current, patch)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = c.Patch(ctx, &u, patch)
-	if err != nil {
-		t.Fatal(err)
+	*owner = current
+}
+
+func strategicPatchesContainInstallerImage(patches []string, image string) bool {
+	for _, patch := range patches {
+		var document map[string]any
+		if err := yaml.Unmarshal([]byte(patch), &document); err != nil {
+			continue
+		}
+
+		machine, ok := document["machine"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		install, ok := machine["install"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if install["image"] == image {
+			return true
+		}
 	}
+
+	return false
 }
 
 func showYamlExpectedAndActual(t *testing.T, expected any, actual any) {

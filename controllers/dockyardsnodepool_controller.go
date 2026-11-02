@@ -23,6 +23,8 @@ import (
 	"slices"
 	"strings"
 
+	semver "github.com/blang/semver/v4"
+	"github.com/distribution/reference"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
 	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
@@ -90,7 +92,8 @@ const (
 	defaultTalosInstallerDataVolumeSize  = "8Gi"
 	DefaultTalosVersion                  = "v1.12"
 	clusterNetworkInterfaceMultiqueueKey = "networkInterfaceMultiqueue"
-	clusterTalosVersionKey               = "talosVersion"
+	AnnotationTalosVersion               = "talos.dockyards.io/talos-version"
+	AnnotationUpgradeInstallerImage      = "talos.dockyards.io/upgrade-installer-image"
 )
 
 type talosInstallerOverride struct {
@@ -797,51 +800,78 @@ func (r *DockyardsNodePoolReconciler) resolveTalosVersionDefault() (string, erro
 	return normalized, nil
 }
 
-func (r *DockyardsNodePoolReconciler) resolveTalosVersion(ctx context.Context, dockyardsCluster *dockyardsv1.Cluster) (string, error) {
+func (r *DockyardsNodePoolReconciler) resolveTalosVersion(dockyardsCluster *dockyardsv1.Cluster) (string, error) {
 	defaultVersion, err := r.resolveTalosVersionDefault()
 	if err != nil {
 		return "", err
 	}
 
-	if dockyardsCluster == nil || dockyardsCluster.Name == "" {
+	if dockyardsCluster == nil {
 		return defaultVersion, nil
 	}
 
-	unstructuredDockyardsCluster := unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": dockyardsv1.GroupVersion.String(),
-			"kind":       dockyardsv1.ClusterKind,
-			"metadata": map[string]any{
-				"name":      dockyardsCluster.Name,
-				"namespace": dockyardsCluster.Namespace,
-			},
-		},
-	}
-
-	err = r.Get(ctx, client.ObjectKeyFromObject(&unstructuredDockyardsCluster), &unstructuredDockyardsCluster)
-	if err != nil {
-		return "", err
-	}
-
-	talosVersion, found, err := unstructured.NestedString(unstructuredDockyardsCluster.Object, "spec", "advanced", "kubevirt", "talos", clusterTalosVersionKey)
-	if err != nil {
-		return "", err
-	}
-
-	if !found {
-		return defaultVersion, nil
-	}
-
-	if normalizeTalosVersion(talosVersion) == "" {
+	talosVersion := strings.TrimSpace(dockyardsCluster.Annotations[AnnotationTalosVersion])
+	if talosVersion == "" {
 		return defaultVersion, nil
 	}
 
 	normalized, err := NormalizeAndValidateTalosVersion(talosVersion)
 	if err != nil {
-		return "", fmt.Errorf("invalid spec.advanced.kubevirt.talos.%s: %w", clusterTalosVersionKey, err)
+		return "", fmt.Errorf("invalid annotation %q: %w", AnnotationTalosVersion, err)
 	}
 
 	return normalized, nil
+}
+
+func resolveUpgradeInstallerImage(dockyardsCluster *dockyardsv1.Cluster) (string, error) {
+	if dockyardsCluster == nil {
+		return "", nil
+	}
+
+	image := strings.TrimSpace(dockyardsCluster.Annotations[AnnotationUpgradeInstallerImage])
+	if image == "" {
+		return "", nil
+	}
+
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", fmt.Errorf("invalid annotation %q: invalid installer image reference %q: %w", AnnotationUpgradeInstallerImage, image, err)
+	}
+
+	tagged, ok := named.(reference.Tagged)
+	if !ok || !strings.HasPrefix(tagged.Tag(), "v") {
+		return "", fmt.Errorf("invalid annotation %q: installer image %q must have a full Talos version tag (for example, v1.13.0)", AnnotationUpgradeInstallerImage, image)
+	}
+	if _, err := semver.Parse(strings.TrimPrefix(tagged.Tag(), "v")); err != nil {
+		return "", fmt.Errorf("invalid annotation %q: installer image %q must have a full Talos version tag (for example, v1.13.0): %w", AnnotationUpgradeInstallerImage, image, err)
+	}
+
+	return image, nil
+}
+
+func addUpgradeInstallerImagePatch(dockyardsCluster *dockyardsv1.Cluster, strategicPatches *StrategicPatches) error {
+	image, err := resolveUpgradeInstallerImage(dockyardsCluster)
+	if err != nil {
+		return err
+	}
+	if image == "" {
+		return nil
+	}
+
+	patch, err := yaml.Marshal(map[string]any{
+		"machine": map[string]any{
+			"install": map[string]any{
+				"image": image,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("could not marshal upgrade installer image patch: %w", err)
+	}
+
+	*strategicPatches = append(*strategicPatches, string(patch))
+
+	return nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {
@@ -1007,7 +1037,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		return ctrl.Result{}, err
 	}
 
-	talosVersion, err := r.resolveTalosVersion(ctx, dockyardsCluster)
+	talosVersion, err := r.resolveTalosVersion(dockyardsCluster)
 	if err != nil {
 		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
 
@@ -1066,6 +1096,13 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+
+	err = addUpgradeInstallerImagePatch(dockyardsCluster, &strategicPatches)
+	if err != nil {
+		conditions.MarkFalse(dockyardsNodePool, TalosControlPlaneReconciledCondition, ErrorReconcilingReason, "%s", err)
+
+		return ctrl.Result{}, err
 	}
 
 	talosControlPlane := controlplanev1.TalosControlPlane{
@@ -1164,7 +1201,12 @@ func (r *DockyardsNodePoolReconciler) desiredWorkerTalosConfigSpec(ctx context.C
 		return bootstrapv1.TalosConfigSpec{}, err
 	}
 
-	talosVersion, err := r.resolveTalosVersion(ctx, dockyardsCluster)
+	err = addUpgradeInstallerImagePatch(dockyardsCluster, &strategicPatches)
+	if err != nil {
+		return bootstrapv1.TalosConfigSpec{}, err
+	}
+
+	talosVersion, err := r.resolveTalosVersion(dockyardsCluster)
 	if err != nil {
 		return bootstrapv1.TalosConfigSpec{}, err
 	}

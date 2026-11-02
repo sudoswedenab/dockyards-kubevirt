@@ -74,7 +74,7 @@ func main() {
 	pflag.StringVar(&talosClusterDiscoveryServiceEndpoint, "talos-discovery-service-endpoint", "", "use talos cluster discovery service other than the default one provided by talos, set this to '0' to disable use of discovery service")
 	pflag.BoolVar(&networkInterfaceMultiqueue, "network-interface-multiqueue-default", true, "enable network interface multiqueue on all vm interfaces")
 	pflag.BoolVar(&enableReconcilers, "enable-reconcilers", true, "enable reconcilers")
-	pflag.StringVar(&talosVersionDefault, "talos-version-default", controllers.DefaultTalosVersion, "default Talos configuration compatibility version when cluster does not set spec.advanced.kubevirt.talos.talosVersion")
+	pflag.StringVar(&talosVersionDefault, "talos-version-default", controllers.DefaultTalosVersion, "default Talos configuration compatibility version when cluster does not set the talos.dockyards.io/talos-version annotation")
 	pflag.Parse()
 
 	normalizedTalosVersionDefault, err := controllers.NormalizeAndValidateTalosVersion(talosVersionDefault)
