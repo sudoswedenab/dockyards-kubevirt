@@ -9,20 +9,23 @@ require (
 	github.com/fluxcd/pkg/runtime v0.46.0
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-cmp v0.7.0
-	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.3.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
 	github.com/siderolabs/cluster-api-bootstrap-provider-talos v0.9.0
 	github.com/siderolabs/cluster-api-control-plane-provider-talos v0.9.0
 	github.com/siderolabs/talos/pkg/machinery v1.14.0
 	github.com/spf13/pflag v1.0.10
-	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20260909110026-98ca22a3105e
+	github.com/sudoswedenab/dockyards-backend/api v0.0.0-20261023103730-910b662a9240
 	google.golang.org/grpc v1.83.2
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.37.0
 	k8s.io/apiextensions-apiserver v0.37.0
 	k8s.io/apimachinery v0.37.0
 	k8s.io/apiserver v0.37.0
+	k8s.io/client-go v0.37.0
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd
-	kubevirt.io/api v1.7.0
+	kubevirt.io/api v1.9.1
+	kubevirt.io/client-go v1.9.1
 	kubevirt.io/containerized-data-importer-api v1.64.0
 	sigs.k8s.io/cluster-api v1.14.2
 	sigs.k8s.io/cluster-api-provider-kubevirt v0.11.2
@@ -36,6 +39,8 @@ replace github.com/siderolabs/cluster-api-bootstrap-provider-talos => github.com
 replace github.com/siderolabs/cluster-api-control-plane-provider-talos => github.com/sidero-community/cluster-api-control-plane-provider-talos v0.9.0
 
 replace sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.13.0
+
+replace k8s.io/kube-openapi v0.31.0 => k8s.io/kube-openapi v0.0.0-20260414162039-ec9c827d403f
 
 require (
 	cel.dev/expr v0.25.2 // indirect
@@ -59,6 +64,8 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
+	github.com/go-kit/log v0.2.1 // indirect
+	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
@@ -75,6 +82,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.28.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.28.0 // indirect
 	github.com/gobuffalo/flect v1.0.3 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/addlicense v1.1.1 // indirect
 	github.com/google/cel-go v0.31.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
@@ -144,11 +152,11 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	k8s.io/client-go v0.37.0 // indirect
 	k8s.io/cluster-bootstrap v0.36.3 // indirect
 	k8s.io/component-base v0.37.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
-	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
+	k8s.io/kube-openapi v0.31.0 // indirect
+	k8s.io/streaming v0.37.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250220230227-13450ba9d760 // indirect
 	sigs.k8s.io/controller-tools v0.14.0 // indirect
