@@ -1502,8 +1502,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-						GenerateType: "controlplane",
-						TalosVersion: "v1.12",
+						GenerateType:     "controlplane",
+						TalosVersion:     "v1.12",
 						StrategicPatches: []string{string(configPatch)},
 					},
 				},

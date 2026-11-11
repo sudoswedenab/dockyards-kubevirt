@@ -18,8 +18,8 @@ import (
 	"context"
 	"strings"
 
-	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	"github.com/fluxcd/pkg/runtime/patch"
+	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
