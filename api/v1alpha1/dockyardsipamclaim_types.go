@@ -21,12 +21,18 @@ import (
 
 // DockyardsIPAMClaimSpec defines the requested network allocation for a machine interface.
 type DockyardsIPAMClaimSpec struct {
-	ClusterName  string `json:"clusterName"`
-	MachineName  string `json:"machineName"`
-	Interface    string `json:"interface"`
-	Subnet       string `json:"subnet"`
-	Address      string `json:"address,omitempty"`
-	ControlPlane bool   `json:"controlPlane"`
+	// ClusterName is the name of the Dockyards cluster that owns the machine.
+	ClusterName string `json:"clusterName"`
+	// MachineName is the CAPI machine name that receives the allocated address.
+	MachineName string `json:"machineName"`
+	// Interface is the network interface on the machine where the address is assigned.
+	Interface string `json:"interface"`
+	// Subnet identifies the subnet pool used to allocate the address.
+	Subnet string `json:"subnet"`
+	// Address optionally requests a specific address instead of automatic allocation.
+	Address string `json:"address,omitempty"`
+	// ControlPlane indicates whether the claim belongs to a control plane machine.
+	ControlPlane bool `json:"controlPlane"`
 }
 
 // DockyardsIPAMClaimStatus defines the observed allocation and reconciliation state.
