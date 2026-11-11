@@ -55,6 +55,6 @@ func clusterGatewayParentReference(cluster *dockyardsv1.Cluster) (gatewayapiv1.P
 
 	return gatewayapiv1.ParentReference{
 		Name:      gatewayapiv1.ObjectName(name),
-		Namespace: ptr.To(gatewayapiv1.Namespace(namespace)),
+		Namespace: new(gatewayapiv1.Namespace(namespace)),
 	}, true, nil
 }

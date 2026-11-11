@@ -91,11 +91,11 @@ func mockCRD(kind, plural, group, version string) *apiextensionsv1.CustomResourc
 							Properties: map[string]apiextensionsv1.JSONSchemaProps{
 								"spec": {
 									Type:                   "object",
-									XPreserveUnknownFields: ptr.To(true),
+									XPreserveUnknownFields: new(true),
 								},
 								"status": {
 									Type:                   "object",
-									XPreserveUnknownFields: ptr.To(true),
+									XPreserveUnknownFields: new(true),
 								},
 							},
 						},

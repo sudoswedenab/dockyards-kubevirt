@@ -57,9 +57,9 @@ func (r *KubevirtVirtualMachineReconciler) reconcileDockyardsVirtualMachine(ctx 
 		vmi.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: vm.APIVersion,
-				Kind: vm.Kind,
-				Name: vm.Name,
-				UID: vm.UID,
+				Kind:       vm.Kind,
+				Name:       vm.Name,
+				UID:        vm.UID,
 			},
 		}
 		if vmi.Labels == nil {
@@ -67,6 +67,7 @@ func (r *KubevirtVirtualMachineReconciler) reconcileDockyardsVirtualMachine(ctx 
 		}
 		vmi.Labels[dockyardsv1.LabelProviderName] = "kubevirt"
 		vmi.Labels[dockyardsv1.LabelVirtualMachineName] = vm.Name
+
 		return nil
 	})
 	if err != nil {
@@ -79,11 +80,11 @@ func (r *KubevirtVirtualMachineReconciler) reconcileDockyardsVirtualMachine(ctx 
 	vmi.Status.Conditions = make([]metav1.Condition, 0, len(vm.Status.Conditions))
 	for _, cond := range vm.Status.Conditions {
 		c := metav1.Condition{
-			Type: string(cond.Type),
-			Status: metav1.ConditionStatus(cond.Status),
+			Type:               string(cond.Type),
+			Status:             metav1.ConditionStatus(cond.Status),
 			LastTransitionTime: cond.LastTransitionTime,
-			Reason: cond.Reason,
-			Message: cond.Message,
+			Reason:             cond.Reason,
+			Message:            cond.Message,
 		}
 		if c.Reason == "" {
 			c.Reason = "Unknown"

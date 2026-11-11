@@ -17,6 +17,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,9 +31,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
+	"github.com/sudoswedenab/dockyards-backend/api/console"
 	"github.com/sudoswedenab/dockyards-backend/api/jwt"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"github.com/sudoswedenab/dockyards-backend/api/console"
 	authorizationv1 "k8s.io/api/authorization/v1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -48,14 +49,14 @@ import (
 )
 
 type API struct {
-	client.Client
-	consoleUpgrader   websocket.Upgrader
-	vncUpgrader       websocket.Upgrader
-	kubevirt          KubeVirt
-	systemNamespace   string
-	config            *dyconfig.ConfigManager
 	subjectAllowCache SubjectAllowCache
-	kvclient          kubevirtv1.KubevirtV1Interface
+	client.Client
+	kvclient        kubevirtv1.KubevirtV1Interface
+	kubevirt        KubeVirt
+	config          *dyconfig.ConfigManager
+	consoleUpgrader websocket.Upgrader
+	vncUpgrader     websocket.Upgrader
+	systemNamespace string
 }
 
 var _ jwt.RequestAuthenticator = &API{}
@@ -68,19 +69,19 @@ type Subject = string
 type ResourceName = string
 
 type AllowList struct {
-	Mtx             sync.Mutex
-	Subject         string
 	VirtualMachines map[ResourceName]bool
 	Events          chan console.Event
+	Subject         string
+	Mtx             sync.Mutex
 	ConnectionID    uint16
 }
 
 type SubjectAllowCache struct {
-	StreamEvents bool
 	Client       client.Client
 	Clientset    *kubernetes.Clientset
-	Mtx          sync.Mutex
 	AllowList    map[*console.Stream]*AllowList
+	Mtx          sync.Mutex
+	StreamEvents bool
 }
 
 func (c *SubjectAllowCache) isAllowedVM(ctx context.Context, stream *console.Stream, subject string, resourceName string) bool {
@@ -115,6 +116,7 @@ func (c *SubjectAllowCache) allowList(ctx context.Context, subject string, resou
 		go c.watchSubjectAllowEntries(ctx, allowList, c, stream)
 	}
 	c.Mtx.Unlock()
+
 	return allowList
 }
 
@@ -142,6 +144,7 @@ func (c *SubjectAllowCache) isAllowedVMSlow(ctx context.Context, subject string,
 	allowed, err := apiutil.IsSubjectAllowed(ctx, c.Client, subject, &resourceAttributes)
 	if err != nil {
 		logger.Error("could not check if subject is allowed", "err", err)
+
 		return false
 	}
 
@@ -165,17 +168,17 @@ func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowL
 	tick := make(chan struct{})
 	synced := atomic.Bool{}
 	funcs := cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
@@ -195,6 +198,7 @@ func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowL
 		_, err := informer.AddEventHandlerWithOptions(funcs, cache.HandlerOptions{})
 		if err != nil {
 			logger.Error("could not add event handler to informer", "err", err)
+
 			return
 		}
 	}
@@ -265,7 +269,7 @@ func (v *KubeVirt) connect(ctx context.Context, path string) (*websocket.Conn, e
 	u := targetURL.String()
 	logger.Debug("connecting", "url", u, "config", v.cfg)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +281,7 @@ func (v *KubeVirt) SerialConsole(ctx context.Context, namespace string, name str
 	if namespace == "" {
 		namespace = "default"
 	}
+
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/console", namespace, name))
 }
 
@@ -284,10 +289,11 @@ func (v *KubeVirt) VNC(ctx context.Context, namespace string, name string) (*web
 	if namespace == "" {
 		namespace = "default"
 	}
+
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/vnc", namespace, name))
 }
 
-func checkOrigin(configManager *dyconfig.ConfigManager) func (r *http.Request) bool {
+func checkOrigin(configManager *dyconfig.ConfigManager) func(r *http.Request) bool {
 	return func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
@@ -295,13 +301,7 @@ func checkOrigin(configManager *dyconfig.ConfigManager) func (r *http.Request) b
 		}
 
 		allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
-		for _, o := range allowedOrigins {
-			if o == origin {
-				return true
-			}
-		}
-
-		return false
+		return slices.Contains(allowedOrigins, origin)
 	}
 }
 
@@ -330,19 +330,19 @@ func NewAPI(mgr manager.Manager, configManager *dyconfig.ConfigManager, systemNa
 			Subprotocols: []string{
 				"multiplexed.console.dockyards.io",
 			},
-			ReadBufferSize: bufferSize,
+			ReadBufferSize:  bufferSize,
 			WriteBufferSize: bufferSize,
 			WriteBufferPool: pool,
-			CheckOrigin: checkOrigin(configManager),
+			CheckOrigin:     checkOrigin(configManager),
 		},
 		vncUpgrader: websocket.Upgrader{
 			Subprotocols: []string{
 				"plain.vnc.dockyards.io",
 			},
-			ReadBufferSize: bufferSize,
+			ReadBufferSize:  bufferSize,
 			WriteBufferSize: bufferSize,
 			WriteBufferPool: pool,
-			CheckOrigin: checkOrigin(configManager),
+			CheckOrigin:     checkOrigin(configManager),
 		},
 		subjectAllowCache: SubjectAllowCache{
 			StreamEvents: true,
@@ -420,8 +420,7 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error("could not set vm power state", "powerState", powerState, "err", err)
 
-		var e *apierrors.StatusError
-		if errors.As(err, &e) {
+		if e, ok := errors.AsType[*apierrors.StatusError](err); ok {
 			code := int(e.Status().Code)
 			if code == http.StatusConflict {
 				// Pausing something that is already paused is fine.
@@ -442,7 +441,6 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-
 }
 
 func (a *API) console(w http.ResponseWriter, r *http.Request) {
@@ -512,10 +510,12 @@ func (a *API) startConsole(ctx context.Context, server *console.Server, stream *
 				logger.Error("could not read tty", "err", err)
 				stream.Close()
 				cancel()
+
 				return
 			}
 			if mt != websocket.BinaryMessage {
 				logger.Error("message was not binary, ignoring it")
+
 				continue
 			}
 			textOutput <- data
@@ -533,6 +533,7 @@ func (a *API) startConsole(ctx context.Context, server *console.Server, stream *
 					err := kvconsole.WriteMessage(websocket.BinaryMessage, m.Input.Data)
 					if err != nil {
 						logger.Error("could not write to pty", "err", err)
+
 						return
 					}
 				case console.ClientMessageKindResize:
@@ -602,6 +603,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 				cleanClose := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 				_ = vnc.WriteMessage(websocket.CloseMessage, cleanClose)
 				_ = conn.WriteMessage(websocket.CloseMessage, cleanClose)
+
 				return
 			case data := <-send:
 				err = conn.WriteMessage(websocket.BinaryMessage, data)
@@ -640,6 +642,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 			if !a.isAllowedVNC(ctx, subject, namespace, name) {
 				logger.Error("subject is not allowed vnc", "subject", subject, "namespace", namespace, "name", name)
 				cancel()
+
 				return
 			}
 
@@ -665,6 +668,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 		if !a.isAllowedVNC(ctx, subject, namespace, name) {
 			logger.Error("subject is not allowed vnc", "subject", subject, "namespace", namespace, "name", name)
 			cancel()
+
 			return
 		}
 

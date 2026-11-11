@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
-	"slices"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/clustercache"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	"slices"
 )
 
 // +kubebuilder:rbac:groups=core,resources=secrets;configmaps,verbs=get;list;watch
@@ -146,7 +146,7 @@ func main() {
 
 		gatewayParentReference := gatewayapiv1.ParentReference{
 			Name:      gatewayapiv1.ObjectName(gatewayName),
-			Namespace: ptr.To(gatewayapiv1.Namespace(gatewayNamespace)),
+			Namespace: new(gatewayapiv1.Namespace(gatewayNamespace)),
 		}
 
 		err = (&controllers.KubevirtVirtualMachineReconciler{
@@ -237,7 +237,6 @@ func main() {
 
 			os.Exit(1)
 		}
-
 	}
 
 	publicMux := http.NewServeMux()
@@ -295,7 +294,7 @@ func cors(config *dyconfig.ConfigManager, next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
 		w.Header().Set("Access-Control-Max-Age", "600")
 
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 
 			return

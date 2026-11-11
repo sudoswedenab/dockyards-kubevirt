@@ -351,7 +351,6 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if operationResult != controllerutil.OperationResultNone {
 			logger.Info("reconciled tls route", "result", operationResult)
 		}
-
 	}
 
 	return ctrl.Result{}, nil
