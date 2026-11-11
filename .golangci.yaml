@@ -46,6 +46,8 @@ linters:
           alias: metav1
         - pkg: github.com/sudoswedenab/dockyards-backend/api/v1alpha3
           alias: dockyardsv1
+        - pkg: kubevirt.io/api/core/v1
+          alias: kubevirtv1
       no-unaliased: true
   exclusions:
     generated: lax
