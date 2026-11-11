@@ -21,15 +21,16 @@ import (
 	"os"
 	"os/signal"
 
+	"slices"
+
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
 	"github.com/sudoswedenab/dockyards-kubevirt/controllers"
-	"github.com/sudoswedenab/dockyards-kubevirt/internal/api/v1"
+	v1 "github.com/sudoswedenab/dockyards-kubevirt/internal/api/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/clustercache"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-	"slices"
 )
 
 // +kubebuilder:rbac:groups=core,resources=secrets;configmaps,verbs=get;list;watch
