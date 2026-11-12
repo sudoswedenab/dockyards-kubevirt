@@ -30,9 +30,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sudoswedenab/dockyards-backend/api/apiutil"
 	dyconfig "github.com/sudoswedenab/dockyards-backend/api/config"
+	"github.com/sudoswedenab/dockyards-backend/api/console"
 	"github.com/sudoswedenab/dockyards-backend/api/jwt"
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"github.com/sudoswedenab/dockyards-backend/api/console"
 	authorizationv1 "k8s.io/api/authorization/v1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -49,13 +49,13 @@ import (
 
 type API struct {
 	client.Client
+	kvclient          kubevirtv1.KubevirtV1Interface
+	kubevirt          KubeVirt
+	config            *dyconfig.ConfigManager
 	consoleUpgrader   websocket.Upgrader
 	vncUpgrader       websocket.Upgrader
-	kubevirt          KubeVirt
 	systemNamespace   string
-	config            *dyconfig.ConfigManager
 	subjectAllowCache SubjectAllowCache
-	kvclient          kubevirtv1.KubevirtV1Interface
 }
 
 var _ jwt.RequestAuthenticator = &API{}
@@ -68,19 +68,19 @@ type Subject = string
 type ResourceName = string
 
 type AllowList struct {
-	Mtx             sync.Mutex
-	Subject         string
 	VirtualMachines map[ResourceName]bool
 	Events          chan console.Event
+	Subject         string
+	Mtx             sync.Mutex
 	ConnectionID    uint16
 }
 
 type SubjectAllowCache struct {
-	StreamEvents bool
 	Client       client.Client
 	Clientset    *kubernetes.Clientset
-	Mtx          sync.Mutex
 	AllowList    map[*console.Stream]*AllowList
+	Mtx          sync.Mutex
+	StreamEvents bool
 }
 
 func (c *SubjectAllowCache) isAllowedVM(ctx context.Context, stream *console.Stream, subject string, resourceName string) bool {
@@ -287,7 +287,7 @@ func (v *KubeVirt) VNC(ctx context.Context, namespace string, name string) (*web
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/vnc", namespace, name))
 }
 
-func checkOrigin(configManager *dyconfig.ConfigManager) func (r *http.Request) bool {
+func checkOrigin(configManager *dyconfig.ConfigManager) func(r *http.Request) bool {
 	return func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
@@ -330,19 +330,19 @@ func NewAPI(mgr manager.Manager, configManager *dyconfig.ConfigManager, systemNa
 			Subprotocols: []string{
 				"multiplexed.console.dockyards.io",
 			},
-			ReadBufferSize: bufferSize,
+			ReadBufferSize:  bufferSize,
 			WriteBufferSize: bufferSize,
 			WriteBufferPool: pool,
-			CheckOrigin: checkOrigin(configManager),
+			CheckOrigin:     checkOrigin(configManager),
 		},
 		vncUpgrader: websocket.Upgrader{
 			Subprotocols: []string{
 				"plain.vnc.dockyards.io",
 			},
-			ReadBufferSize: bufferSize,
+			ReadBufferSize:  bufferSize,
 			WriteBufferSize: bufferSize,
 			WriteBufferPool: pool,
-			CheckOrigin: checkOrigin(configManager),
+			CheckOrigin:     checkOrigin(configManager),
 		},
 		subjectAllowCache: SubjectAllowCache{
 			StreamEvents: true,
