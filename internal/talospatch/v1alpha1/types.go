@@ -44,11 +44,11 @@ func (c *Config) IsZero() bool {
 }
 
 type MachineConfig struct {
-	Kubelet    KubeletConfig     `yaml:"kubelet,omitempty"`
 	Env        Env               `yaml:"env,omitempty"`
-	Files      []MachineFile     `yaml:"files,omitempty"`
 	NodeLabels map[string]string `yaml:"nodeLabels,omitempty"`
 	NodeTaints map[string]string `yaml:"nodeTaints,omitempty"`
+	Kubelet    KubeletConfig     `yaml:"kubelet,omitempty"`
+	Files      []MachineFile     `yaml:"files,omitempty"`
 }
 
 var _ yaml.IsZeroer = &MachineConfig{}
@@ -104,9 +104,9 @@ func (e *Env) Set(key string, value string) *Env {
 
 type MachineFile struct {
 	Content     string      `yaml:"content,omitempty"`
-	Permissions os.FileMode `yaml:"permissions,omitempty"`
 	Path        string      `yaml:"path,omitempty"`
 	Op          string      `yaml:"op,omitempty"`
+	Permissions os.FileMode `yaml:"permissions,omitempty"`
 }
 
 var _ yaml.IsZeroer = &MachineFile{}
@@ -142,9 +142,9 @@ func (c *KubeletNodeIPConfig) IsZero() bool {
 }
 
 type ClusterNetworkConfig struct {
+	CNI            CNIConfig `yaml:"cni,omitempty"`
 	PodSubnets     []string  `yaml:"podSubnets,omitempty" merge:"replace"`
 	ServiceSubnets []string  `yaml:"serviceSubnets,omitempty" merge:"replace"`
-	CNI            CNIConfig `yaml:"cni,omitempty"`
 }
 
 var _ yaml.IsZeroer = &ClusterNetworkConfig{}
@@ -195,9 +195,9 @@ func (c *ETCDConfig) IsZero() bool {
 
 type ClusterConfig struct {
 	Network   ClusterNetworkConfig   `yaml:"network,omitempty"`
+	Discovery ClusterDiscoveryConfig `yaml:"discovery,omitempty"`
 	APIServer APIServerConfig        `yaml:"apiServer,omitempty"`
 	ETCD      ETCDConfig             `yaml:"etcd,omitempty"`
-	Discovery ClusterDiscoveryConfig `yaml:"discovery,omitempty"`
 }
 
 var _ yaml.IsZeroer = &ClusterConfig{}
