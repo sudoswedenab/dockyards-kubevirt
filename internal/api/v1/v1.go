@@ -17,6 +17,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -167,17 +168,17 @@ func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowL
 	tick := make(chan struct{})
 	synced := atomic.Bool{}
 	funcs := cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
@@ -300,13 +301,7 @@ func checkOrigin(configManager *dyconfig.ConfigManager) func(r *http.Request) bo
 		}
 
 		allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
-		for _, o := range allowedOrigins {
-			if o == origin {
-				return true
-			}
-		}
-
-		return false
+		return slices.Contains(allowedOrigins, origin)
 	}
 }
 
@@ -425,8 +420,7 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error("could not set vm power state", "powerState", powerState, "err", err)
 
-		var e *apierrors.StatusError
-		if errors.As(err, &e) {
+		if e, ok := errors.AsType[*apierrors.StatusError](err); ok {
 			code := int(e.Status().Code)
 			if code == http.StatusConflict {
 				// Pausing something that is already paused is fine.

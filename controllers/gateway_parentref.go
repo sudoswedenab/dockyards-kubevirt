@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
-	"k8s.io/utils/ptr"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -55,6 +54,6 @@ func clusterGatewayParentReference(cluster *dockyardsv1.Cluster) (gatewayapiv1.P
 
 	return gatewayapiv1.ParentReference{
 		Name:      gatewayapiv1.ObjectName(name),
-		Namespace: ptr.To(gatewayapiv1.Namespace(namespace)),
+		Namespace: new(gatewayapiv1.Namespace(namespace)),
 	}, true, nil
 }
