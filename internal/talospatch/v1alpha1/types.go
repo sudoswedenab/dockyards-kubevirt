@@ -40,6 +40,7 @@ func (c *Config) IsZero() bool {
 	if !c.Cluster.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -69,6 +70,7 @@ func (c *MachineConfig) IsZero() bool {
 	if c.NodeTaints != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -83,6 +85,7 @@ func (k *KubeletConfig) IsZero() bool {
 	if !k.NodeIP.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -99,6 +102,7 @@ func (e *Env) Set(key string, value string) *Env {
 		*e = map[string]string{}
 	}
 	(*e)[key] = value
+
 	return e
 }
 
@@ -124,6 +128,7 @@ func (f *MachineFile) IsZero() bool {
 	if f.Op != "" {
 		return false
 	}
+
 	return true
 }
 
@@ -138,6 +143,7 @@ func (c *KubeletNodeIPConfig) IsZero() bool {
 	if c.ValidSubnets != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -159,6 +165,7 @@ func (c *ClusterNetworkConfig) IsZero() bool {
 	if !c.CNI.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -173,6 +180,7 @@ func (c *CNIConfig) IsZero() bool {
 	if c.Name != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -190,6 +198,7 @@ func (c *ETCDConfig) IsZero() bool {
 	if c.ListenSubnets != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -215,6 +224,7 @@ func (c *ClusterConfig) IsZero() bool {
 	if !c.Discovery.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -236,6 +246,7 @@ func (c *APIServerConfig) IsZero() bool {
 	if c.ExtraVolumes != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -257,6 +268,7 @@ func (v *ExtraVolume) IsZero() bool {
 	if v.Readonly {
 		return false
 	}
+
 	return true
 }
 
@@ -318,6 +330,7 @@ func (v *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
 	var scalar string
 	if err := unmarshal(&scalar); err == nil {
 		*v = append(*v, scalar)
+
 		return nil
 	}
 
@@ -325,6 +338,7 @@ func (v *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
 	var list []string
 	if err := unmarshal(&list); err == nil {
 		*v = list
+
 		return nil
 	}
 
@@ -342,6 +356,7 @@ func (c *ClusterDiscoveryConfig) IsZero() bool {
 	if !c.Registries.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -356,6 +371,7 @@ func (c *DiscoveryRegistriesConfig) IsZero() bool {
 	if !c.Service.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -373,5 +389,6 @@ func (c *RegistryServiceConfig) IsZero() bool {
 	if c.Endpoint != "" {
 		return false
 	}
+
 	return true
 }
