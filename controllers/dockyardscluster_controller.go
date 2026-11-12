@@ -168,6 +168,7 @@ func (r *DockyardsClusterReconciler) reconcileKubevirtCluster(ctx context.Contex
 	if operationResult != controllerutil.OperationResultNone {
 		logger.Info("reconciled kubevirt cluster", "result", operationResult)
 	}
+
 	return ctrl.Result{}, nil
 }
 

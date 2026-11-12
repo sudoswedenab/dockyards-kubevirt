@@ -115,6 +115,7 @@ func (c *SubjectAllowCache) allowList(ctx context.Context, subject string, resou
 		go c.watchSubjectAllowEntries(ctx, allowList, c, stream)
 	}
 	c.Mtx.Unlock()
+
 	return allowList
 }
 
@@ -142,6 +143,7 @@ func (c *SubjectAllowCache) isAllowedVMSlow(ctx context.Context, subject string,
 	allowed, err := apiutil.IsSubjectAllowed(ctx, c.Client, subject, &resourceAttributes)
 	if err != nil {
 		logger.Error("could not check if subject is allowed", "err", err)
+
 		return false
 	}
 
@@ -195,6 +197,7 @@ func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowL
 		_, err := informer.AddEventHandlerWithOptions(funcs, cache.HandlerOptions{})
 		if err != nil {
 			logger.Error("could not add event handler to informer", "err", err)
+
 			return
 		}
 	}
@@ -277,6 +280,7 @@ func (v *KubeVirt) SerialConsole(ctx context.Context, namespace string, name str
 	if namespace == "" {
 		namespace = "default"
 	}
+
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/console", namespace, name))
 }
 
@@ -284,6 +288,7 @@ func (v *KubeVirt) VNC(ctx context.Context, namespace string, name string) (*web
 	if namespace == "" {
 		namespace = "default"
 	}
+
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/vnc", namespace, name))
 }
 
@@ -512,10 +517,12 @@ func (a *API) startConsole(ctx context.Context, server *console.Server, stream *
 				logger.Error("could not read tty", "err", err)
 				stream.Close()
 				cancel()
+
 				return
 			}
 			if mt != websocket.BinaryMessage {
 				logger.Error("message was not binary, ignoring it")
+
 				continue
 			}
 			textOutput <- data
@@ -533,6 +540,7 @@ func (a *API) startConsole(ctx context.Context, server *console.Server, stream *
 					err := kvconsole.WriteMessage(websocket.BinaryMessage, m.Input.Data)
 					if err != nil {
 						logger.Error("could not write to pty", "err", err)
+
 						return
 					}
 				case console.ClientMessageKindResize:
@@ -602,6 +610,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 				cleanClose := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 				_ = vnc.WriteMessage(websocket.CloseMessage, cleanClose)
 				_ = conn.WriteMessage(websocket.CloseMessage, cleanClose)
+
 				return
 			case data := <-send:
 				err = conn.WriteMessage(websocket.BinaryMessage, data)
@@ -640,6 +649,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 			if !a.isAllowedVNC(ctx, subject, namespace, name) {
 				logger.Error("subject is not allowed vnc", "subject", subject, "namespace", namespace, "name", name)
 				cancel()
+
 				return
 			}
 
@@ -665,6 +675,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 		if !a.isAllowedVNC(ctx, subject, namespace, name) {
 			logger.Error("subject is not allowed vnc", "subject", subject, "namespace", namespace, "name", name)
 			cancel()
+
 			return
 		}
 
