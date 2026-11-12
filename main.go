@@ -295,7 +295,7 @@ func cors(config *dyconfig.ConfigManager, next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
 		w.Header().Set("Access-Control-Max-Age", "600")
 
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 
 			return
