@@ -29,10 +29,10 @@ type DockyardsIPAMClaimSpec struct {
 	Interface string `json:"interface"`
 	// Subnet identifies the subnet pool used to allocate the address.
 	Subnet string `json:"subnet"`
-	// ControlPlane indicates whether the claim belongs to a control plane machine.
-	ControlPlane bool `json:"controlPlane"`
 	// Address optionally requests a specific address instead of automatic allocation.
 	Address string `json:"address,omitempty"`
+	// ControlPlane indicates whether the claim belongs to a control plane machine.
+	ControlPlane bool `json:"controlPlane"`
 }
 
 // DockyardsIPAMClaimStatus defines the observed allocation and reconciliation state.

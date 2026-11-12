@@ -69,13 +69,12 @@ type StrategicPatches []string
 
 type DockyardsNodePoolReconciler struct {
 	client.Client
-
-	TalosClusterDiscoveryServiceEndpoint string
 	DataVolumeStorageClassName           *string
-	EnableMultus                         bool
-	ValidNodeIPSubnets                   []string
-	UseBlockStorage                      bool
 	DockyardsConfig                      *dyconfig.ConfigManager
+	TalosClusterDiscoveryServiceEndpoint string
+	ValidNodeIPSubnets                   []string
+	EnableMultus                         bool
+	UseBlockStorage                      bool
 	NetworkInterfaceMultiQueue           bool
 }
 

@@ -49,11 +49,10 @@ import (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=create;get;list;patch;watch
 
 type DockyardsClusterReconciler struct {
+	GatewayParentReference gatewayapiv1.ParentReference
 	client.Client
-
-	GatewayParentReference   gatewayapiv1.ParentReference
-	DockyardsSystemNamespace string
 	DockyardsConfig          *dyconfig.ConfigManager
+	DockyardsSystemNamespace string
 	EnableWorkloadIngress    bool
 }
 
