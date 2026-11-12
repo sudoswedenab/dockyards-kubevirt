@@ -418,30 +418,29 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err != nil {
-		logger.Error("could not set vm power state", "powerState", powerState, "err", err)
+	if err == nil {
+		return
+	}
+	logger.Error("could not set vm power state", "powerState", powerState, "err", err)
 
-		if e, ok := errors.AsType[*apierrors.StatusError](err); ok {
-			code := int(e.Status().Code)
-			if code == http.StatusConflict {
-				// Pausing something that is already paused is fine.
-				w.WriteHeader(http.StatusOK)
-
-				return
-			}
-			if code == 0 {
-				code = http.StatusInternalServerError
-			}
-			w.WriteHeader(code)
-			_, _ = w.Write([]byte(e.Status().Message)) // Best effort
+	if e, ok := errors.AsType[*apierrors.StatusError](err); ok {
+		code := int(e.Status().Code)
+		if code == http.StatusConflict {
+			// Pausing something that is already paused is fine.
+			w.WriteHeader(http.StatusOK)
 
 			return
 		}
-
-		w.WriteHeader(http.StatusInternalServerError)
+		if code == 0 {
+			code = http.StatusInternalServerError
+		}
+		w.WriteHeader(code)
+		_, _ = w.Write([]byte(e.Status().Message)) // Best effort
 
 		return
 	}
+
+	w.WriteHeader(http.StatusInternalServerError)
 }
 
 func (a *API) console(w http.ResponseWriter, r *http.Request) {
