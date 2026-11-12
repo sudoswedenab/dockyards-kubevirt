@@ -603,10 +603,7 @@ func cappedKubernetesName(base, suffix string) string {
 		return base + suffix
 	}
 
-	maxBaseLength := 253 - len(suffix)
-	if maxBaseLength < 0 {
-		maxBaseLength = 0
-	}
+	maxBaseLength := max(253-len(suffix), 0)
 
 	return base[:maxBaseLength] + suffix
 }
@@ -676,7 +673,7 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 	}
 
 	if r.TalosClusterDiscoveryServiceEndpoint == "0" {
-		patch.Cluster.Discovery.Registries.Service.Disabled = ptr.To(true)
+		patch.Cluster.Discovery.Registries.Service.Disabled = new(true)
 	} else {
 		patch.Cluster.Discovery.Registries.Service.Endpoint = r.TalosClusterDiscoveryServiceEndpoint
 	}
@@ -702,7 +699,7 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 
 	clusterStorageClassName = strings.TrimSpace(clusterStorageClassName)
 	if clusterStorageClassName != "" {
-		return ptr.To(clusterStorageClassName), nil
+		return new(clusterStorageClassName), nil
 	}
 
 	return r.DataVolumeStorageClassName, nil
@@ -711,7 +708,7 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*bool, error) {
 	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
 	if apierrors.IsNotFound(err) {
-		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+		return new(r.NetworkInterfaceMultiQueue), nil
 	}
 
 	if err != nil {
@@ -719,7 +716,7 @@ func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx cont
 	}
 
 	if ownerCluster.Name == "" {
-		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+		return new(r.NetworkInterfaceMultiQueue), nil
 	}
 
 	unstructuredDockyardsCluster := unstructured.Unstructured{
@@ -744,10 +741,10 @@ func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx cont
 	}
 
 	if !found {
-		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+		return new(r.NetworkInterfaceMultiQueue), nil
 	}
 
-	return ptr.To(enabled), nil
+	return new(enabled), nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {
@@ -859,12 +856,12 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	dockyardsCluster *dockyardsv1.Cluster,
 	strategicPatches *StrategicPatches,
 ) error {
-	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
+	err := strategicPatches.Add(new(r.talosConfigPatch(dockyardsCluster)))
 	if err != nil {
 		return fmt.Errorf("could not add talos config patches: %w", err)
 	}
 
-	err = strategicPatches.Add(ptr.To(r.timeSyncConfigPatch()))
+	err = strategicPatches.Add(new(r.timeSyncConfigPatch()))
 	if err != nil {
 		return fmt.Errorf("could not add time sync config patches: %w", err)
 	}
@@ -926,7 +923,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	}
 
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
-		controlPlanePatch.Cluster.Network.CNI.Name = ptr.To("none")
+		controlPlanePatch.Cluster.Network.CNI.Name = new("none")
 	}
 
 	// Authentication configuration
