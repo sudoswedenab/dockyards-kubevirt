@@ -872,7 +872,6 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 		if err != nil {
 			return err
 		}
-
 	}
 
 	return nil
