@@ -269,7 +269,7 @@ func (v *KubeVirt) connect(ctx context.Context, path string) (*websocket.Conn, e
 	u := targetURL.String()
 	logger.Debug("connecting", "url", u, "config", v.cfg)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
