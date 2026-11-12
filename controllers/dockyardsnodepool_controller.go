@@ -1222,6 +1222,7 @@ func (patches *StrategicPatches) Add(value yaml.IsZeroer) error {
 		return fmt.Errorf("could not marshal strategic patch: %w", err)
 	}
 	*patches = append(*patches, string(raw))
+
 	return nil
 }
 
@@ -1248,6 +1249,7 @@ func (patches *StrategicPatches) AddMany(value []dockyardsv1.Patch) error {
 		}
 		*patches = append(*patches, string(result))
 	}
+
 	return nil
 }
 

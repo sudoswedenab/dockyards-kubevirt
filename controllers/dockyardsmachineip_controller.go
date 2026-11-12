@@ -100,6 +100,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err != nil {
 		if errors.Is(err, errControlPlaneRefUnavailable) {
 			logger.Info("unable to determine control plane replicas", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
+
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 
@@ -136,6 +137,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 		if errors.Is(err, errNoControlPlaneIPsAvailable) || errors.Is(err, errNoWorkerIPsAvailable) {
 			logger.Info("unable to allocate IP", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
+
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 
@@ -846,35 +848,41 @@ func setLinkConfigAddress(doc map[string]any, interfaceName, addressWithPrefix s
 		addrMap, ok := entry.(map[string]any)
 		if !ok {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		valueRaw, ok := addrMap["address"]
 		if !ok {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		value, ok := valueRaw.(string)
 		if !ok {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		existingPrefix, err := netip.ParsePrefix(value)
 		if err != nil {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		if existingPrefix == desiredPrefix {
 			foundDesired = true
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		if existingPrefix.Bits() == desiredPrefix.Bits() && managedSubnet.Contains(existingPrefix.Addr()) {
 			changed = true
+
 			continue
 		}
 
