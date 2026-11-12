@@ -162,24 +162,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			return ctrl.Result{}, err
 		}
 	} else {
-		release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
-		if err != nil {
-			return ctrl.Result{}, nil
-		}
-
-		if release == nil {
-			logger.Info("ignoring machine template without default release")
-
-			return ctrl.Result{}, nil
-		}
-
-		err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
-		if apierrors.IsNotFound(err) {
-			conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
-
-			return ctrl.Result{}, nil
-		}
-
+		dataSource, err = r.reconcileDefaultDataStore(ctx, dockyardsNodePool)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -416,22 +399,24 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			},
 		}
 
-		if nodeClass != nil {
-			if nodeClass.Spec.NodeSelector != nil {
-				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.NodeSelector = nodeClass.Spec.NodeSelector
+		if nodeClass == nil {
+			return nil
+		}
+
+		if nodeClass.Spec.NodeSelector != nil {
+			machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.NodeSelector = nodeClass.Spec.NodeSelector
+		}
+
+		if nodeClass.Spec.NodeAffinity != nil {
+			if machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity == nil {
+				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{}
 			}
 
-			if nodeClass.Spec.NodeAffinity != nil {
-				if machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity == nil {
-					machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{}
-				}
+			machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity.NodeAffinity = nodeClass.Spec.NodeAffinity
+		}
 
-				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity.NodeAffinity = nodeClass.Spec.NodeAffinity
-			}
-
-			if nodeClass.Spec.Tolerations != nil {
-				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Tolerations = nodeClass.Spec.Tolerations
-			}
+		if nodeClass.Spec.Tolerations != nil {
+			machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Tolerations = nodeClass.Spec.Tolerations
 		}
 
 		return nil
@@ -445,6 +430,31 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	logger.Info("reconciled machine template", "result", operationResult)
 
 	return ctrl.Result{}, nil
+}
+
+func (r *DockyardsNodePoolReconciler) reconcileDefaultDataStore(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (cdiv1.DataSource, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	var dataSource cdiv1.DataSource
+	release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
+	if err != nil {
+		return cdiv1.DataSource{}, nil
+	}
+
+	if release == nil {
+		logger.Info("ignoring machine template without default release")
+
+		return cdiv1.DataSource{}, nil
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
+	if apierrors.IsNotFound(err) {
+		conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
+
+		return cdiv1.DataSource{}, nil
+	}
+
+	return dataSource, err
 }
 
 func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*dockyardsv1.Cluster, *talosInstallerOverride, error) {
