@@ -301,6 +301,7 @@ func checkOrigin(configManager *dyconfig.ConfigManager) func(r *http.Request) bo
 		}
 
 		allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
+
 		return slices.Contains(allowedOrigins, origin)
 	}
 }
@@ -441,7 +442,6 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-
 }
 
 func (a *API) console(w http.ResponseWriter, r *http.Request) {
