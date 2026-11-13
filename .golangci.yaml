@@ -1,0 +1,72 @@
+# Copyright 2024 Sudo Sweden AB
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: "2"
+run:
+  tests: false
+linters:
+  enable:
+    - errcheck
+    - goconst
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - loggercheck
+    - modernize
+    - nestif
+    - nlreturn
+    - reassign
+    - revive
+    - sloglint
+    - staticcheck
+    - unused
+    - usestdlibvars
+    - whitespace
+  settings:
+    govet:
+      enable:
+        - fieldalignment
+    importas:
+      alias:
+        - pkg: k8s.io/api/core/v1
+          alias: corev1
+        - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+          alias: metav1
+        - pkg: github.com/sudoswedenab/dockyards-backend/api/v1alpha3
+          alias: dockyardsv1
+        - pkg: kubevirt.io/api/core/v1
+          alias: kubevirtv1
+      no-unaliased: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

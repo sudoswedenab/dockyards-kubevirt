@@ -21,7 +21,6 @@ import (
 	dockyardsv1 "github.com/sudoswedenab/dockyards-backend/api/v1alpha3"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	providerv1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -62,6 +61,8 @@ var (
 )
 
 func mockCRD(kind, plural, group, version string) *apiextensionsv1.CustomResourceDefinition {
+	const schemaTypeObject = "object"
+
 	return &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -87,15 +88,15 @@ func mockCRD(kind, plural, group, version string) *apiextensionsv1.CustomResourc
 					},
 					Schema: &apiextensionsv1.CustomResourceValidation{
 						OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-							Type: "object",
+							Type: schemaTypeObject,
 							Properties: map[string]apiextensionsv1.JSONSchemaProps{
 								"spec": {
-									Type:                   "object",
-									XPreserveUnknownFields: ptr.To(true),
+									Type:                   schemaTypeObject,
+									XPreserveUnknownFields: new(true),
 								},
 								"status": {
-									Type:                   "object",
-									XPreserveUnknownFields: ptr.To(true),
+									Type:                   schemaTypeObject,
+									XPreserveUnknownFields: new(true),
 								},
 							},
 						},

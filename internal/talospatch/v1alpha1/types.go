@@ -40,15 +40,16 @@ func (c *Config) IsZero() bool {
 	if !c.Cluster.IsZero() {
 		return false
 	}
+
 	return true
 }
 
 type MachineConfig struct {
-	Kubelet    KubeletConfig     `yaml:"kubelet,omitempty"`
 	Env        Env               `yaml:"env,omitempty"`
-	Files      []MachineFile     `yaml:"files,omitempty"`
 	NodeLabels map[string]string `yaml:"nodeLabels,omitempty"`
 	NodeTaints map[string]string `yaml:"nodeTaints,omitempty"`
+	Kubelet    KubeletConfig     `yaml:"kubelet,omitempty"`
+	Files      []MachineFile     `yaml:"files,omitempty"`
 }
 
 var _ yaml.IsZeroer = &MachineConfig{}
@@ -69,6 +70,7 @@ func (c *MachineConfig) IsZero() bool {
 	if c.NodeTaints != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -83,6 +85,7 @@ func (k *KubeletConfig) IsZero() bool {
 	if !k.NodeIP.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -99,14 +102,15 @@ func (e *Env) Set(key string, value string) *Env {
 		*e = map[string]string{}
 	}
 	(*e)[key] = value
+
 	return e
 }
 
 type MachineFile struct {
 	Content     string      `yaml:"content,omitempty"`
-	Permissions os.FileMode `yaml:"permissions,omitempty"`
 	Path        string      `yaml:"path,omitempty"`
 	Op          string      `yaml:"op,omitempty"`
+	Permissions os.FileMode `yaml:"permissions,omitempty"`
 }
 
 var _ yaml.IsZeroer = &MachineFile{}
@@ -124,6 +128,7 @@ func (f *MachineFile) IsZero() bool {
 	if f.Op != "" {
 		return false
 	}
+
 	return true
 }
 
@@ -138,13 +143,14 @@ func (c *KubeletNodeIPConfig) IsZero() bool {
 	if c.ValidSubnets != nil {
 		return false
 	}
+
 	return true
 }
 
 type ClusterNetworkConfig struct {
+	CNI            CNIConfig `yaml:"cni,omitempty"`
 	PodSubnets     []string  `yaml:"podSubnets,omitempty" merge:"replace"`
 	ServiceSubnets []string  `yaml:"serviceSubnets,omitempty" merge:"replace"`
-	CNI            CNIConfig `yaml:"cni,omitempty"`
 }
 
 var _ yaml.IsZeroer = &ClusterNetworkConfig{}
@@ -159,6 +165,7 @@ func (c *ClusterNetworkConfig) IsZero() bool {
 	if !c.CNI.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -173,6 +180,7 @@ func (c *CNIConfig) IsZero() bool {
 	if c.Name != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -190,14 +198,15 @@ func (c *ETCDConfig) IsZero() bool {
 	if c.ListenSubnets != nil {
 		return false
 	}
+
 	return true
 }
 
 type ClusterConfig struct {
 	Network   ClusterNetworkConfig   `yaml:"network,omitempty"`
+	Discovery ClusterDiscoveryConfig `yaml:"discovery,omitempty"`
 	APIServer APIServerConfig        `yaml:"apiServer,omitempty"`
 	ETCD      ETCDConfig             `yaml:"etcd,omitempty"`
-	Discovery ClusterDiscoveryConfig `yaml:"discovery,omitempty"`
 }
 
 var _ yaml.IsZeroer = &ClusterConfig{}
@@ -215,6 +224,7 @@ func (c *ClusterConfig) IsZero() bool {
 	if !c.Discovery.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -236,6 +246,7 @@ func (c *APIServerConfig) IsZero() bool {
 	if c.ExtraVolumes != nil {
 		return false
 	}
+
 	return true
 }
 
@@ -257,6 +268,7 @@ func (v *ExtraVolume) IsZero() bool {
 	if v.Readonly {
 		return false
 	}
+
 	return true
 }
 
@@ -264,41 +276,41 @@ type Args map[string]ArgValue
 
 var _ yaml.IsZeroer = &Args{}
 
-func (a *Args) IsZero() bool {
-	return *a == nil
+func (s *Args) IsZero() bool {
+	return *s == nil
 }
 
-func (a *Args) Add(key string, value string) {
-	if *a == nil {
-		*a = map[string]ArgValue{}
+func (s *Args) Add(key string, value string) {
+	if *s == nil {
+		*s = map[string]ArgValue{}
 	}
-	(*a)[key] = append((*a)[key], value)
+	(*s)[key] = append((*s)[key], value)
 }
 
 type ArgValue []string
 
 var _ yaml.IsZeroer = &ArgValue{}
 
-func (a *ArgValue) IsZero() bool {
-	return *a == nil
+func (e *ArgValue) IsZero() bool {
+	return *e == nil
 }
 
 // NOTE: `a` needs to not be passed by reference, since otherwise the yaml package will not call this function.
-func (a ArgValue) MarshalYAML() (any, error) {
-	if len(a) == 0 {
+func (e ArgValue) MarshalYAML() (any, error) {
+	if len(e) == 0 {
 		return nil, nil
 	}
 
-	if len(a) == 1 {
+	if len(e) == 1 {
 		return &yaml.Node{
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!str",
-			Value: (a)[0],
+			Value: (e)[0],
 		}, nil
 	}
 
-	content := make([]*yaml.Node, 0, len(a))
-	for _, value := range a {
+	content := make([]*yaml.Node, 0, len(e))
+	for _, value := range e {
 		content = append(content, &yaml.Node{
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!str",
@@ -313,18 +325,20 @@ func (a ArgValue) MarshalYAML() (any, error) {
 	}, nil
 }
 
-func (v *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
+func (e *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
 	// Try parsing scalar value
 	var scalar string
 	if err := unmarshal(&scalar); err == nil {
-		*v = append(*v, scalar)
+		*e = append(*e, scalar)
+
 		return nil
 	}
 
 	// If it fails, try parsing it as an array instead
 	var list []string
 	if err := unmarshal(&list); err == nil {
-		*v = list
+		*e = list
+
 		return nil
 	}
 
@@ -342,6 +356,7 @@ func (c *ClusterDiscoveryConfig) IsZero() bool {
 	if !c.Registries.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -356,6 +371,7 @@ func (c *DiscoveryRegistriesConfig) IsZero() bool {
 	if !c.Service.IsZero() {
 		return false
 	}
+
 	return true
 }
 
@@ -373,5 +389,6 @@ func (c *RegistryServiceConfig) IsZero() bool {
 	if c.Endpoint != "" {
 		return false
 	}
+
 	return true
 }
