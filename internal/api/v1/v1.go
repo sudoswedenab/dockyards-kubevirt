@@ -48,6 +48,8 @@ import (
 	kubevirtv1 "kubevirt.io/client-go/kubevirt/typed/core/v1"
 )
 
+const defaultNamespace = "default"
+
 type API struct {
 	client.Client
 	kvclient          kubevirtv1.KubevirtV1Interface
@@ -279,7 +281,7 @@ func (v *KubeVirt) connect(ctx context.Context, path string) (*websocket.Conn, e
 
 func (v *KubeVirt) SerialConsole(ctx context.Context, namespace string, name string) (*websocket.Conn, error) {
 	if namespace == "" {
-		namespace = "default"
+		namespace = defaultNamespace
 	}
 
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/console", namespace, name))
@@ -287,7 +289,7 @@ func (v *KubeVirt) SerialConsole(ctx context.Context, namespace string, name str
 
 func (v *KubeVirt) VNC(ctx context.Context, namespace string, name string) (*websocket.Conn, error) {
 	if namespace == "" {
-		namespace = "default"
+		namespace = defaultNamespace
 	}
 
 	return v.connect(ctx, fmt.Sprintf("/apis/subresources.kubevirt.io/v1/namespaces/%s/virtualmachineinstances/%s/vnc", namespace, name))
@@ -383,7 +385,7 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 
 	namespace := r.PathValue("namespace")
 	if namespace == "" {
-		namespace = "default"
+		namespace = defaultNamespace
 	}
 	name := r.PathValue("name")
 	powerState := PowerState(r.PathValue("powerstate"))

@@ -203,6 +203,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &machineTemplate, func() error {
+		const nameBoot = "boot"
 		machineTemplate.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: dockyardsv1.GroupVersion.String(),
@@ -227,7 +228,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
 			{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "boot",
+					Name: nameBoot,
 				},
 				Spec: cdiv1.DataVolumeSpec{
 					PVC: &corev1.PersistentVolumeClaimSpec{
@@ -263,7 +264,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 						Bus: kubevirtv1.DiskBusVirtio,
 					},
 				},
-				Name: "boot",
+				Name: nameBoot,
 			},
 		}
 
@@ -271,10 +272,10 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			{
 				VolumeSource: kubevirtv1.VolumeSource{
 					DataVolume: &kubevirtv1.DataVolumeSource{
-						Name: "boot",
+						Name: nameBoot,
 					},
 				},
-				Name: "boot",
+				Name: nameBoot,
 			},
 		}
 
@@ -888,6 +889,8 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+	const manifestAuthPath = "/var/manifests/authentication.yaml"
+
 	logger := ctrl.LoggerFrom(ctx)
 
 	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
@@ -946,14 +949,14 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		controlPlanePatch.Machine.Files = append(controlPlanePatch.Machine.Files, talospatchv1.MachineFile{
 			Content:     string(content),
 			Permissions: 0o444,
-			Path:        "/var/manifests/authentication.yaml",
+			Path:        manifestAuthPath,
 			Op:          "create",
 		})
 
-		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("authentication-config", "/var/manifests/authentication.yaml")
+		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("authentication-config", manifestAuthPath)
 		controlPlanePatch.Cluster.APIServer.ExtraVolumes = append(controlPlanePatch.Cluster.APIServer.ExtraVolumes, talospatchv1.ExtraVolume{
-			HostPath:  "/var/manifests/authentication.yaml",
-			MountPath: "/var/manifests/authentication.yaml",
+			HostPath:  manifestAuthPath,
+			MountPath: manifestAuthPath,
 			Readonly:  true,
 		})
 	}

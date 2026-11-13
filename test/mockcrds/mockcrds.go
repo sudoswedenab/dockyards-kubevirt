@@ -61,6 +61,8 @@ var (
 )
 
 func mockCRD(kind, plural, group, version string) *apiextensionsv1.CustomResourceDefinition {
+	const schemaTypeObject = "object"
+
 	return &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -86,14 +88,14 @@ func mockCRD(kind, plural, group, version string) *apiextensionsv1.CustomResourc
 					},
 					Schema: &apiextensionsv1.CustomResourceValidation{
 						OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-							Type: "object",
+							Type: schemaTypeObject,
 							Properties: map[string]apiextensionsv1.JSONSchemaProps{
 								"spec": {
-									Type:                   "object",
+									Type:                   schemaTypeObject,
 									XPreserveUnknownFields: new(true),
 								},
 								"status": {
-									Type:                   "object",
+									Type:                   schemaTypeObject,
 									XPreserveUnknownFields: new(true),
 								},
 							},
