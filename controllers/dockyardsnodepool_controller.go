@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -375,6 +376,11 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			networks = append([]kubevirtv1.Network{*kubevirtv1.DefaultPodNetwork()}, networks...)
 		}
 
+		cores, err := strconv.ParseUint(cpu.String(), 10, 32)
+		if err != nil {
+			return err
+		}
+
 		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
 			DataVolumeTemplates: dataVolumeTemplates,
 			RunStrategy:         ptr.To(kubevirtv1.RunStrategyAlways),
@@ -382,7 +388,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 				Spec: kubevirtv1.VirtualMachineInstanceSpec{
 					Domain: kubevirtv1.DomainSpec{
 						CPU: &kubevirtv1.CPU{
-							Cores: uint32(cpu.Value()),
+							Cores: uint32(cores),
 						},
 						Devices: kubevirtv1.Devices{
 							Disks:                      disks,

@@ -32,19 +32,19 @@ func TestNewIPv4Range(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.controlPlaneStart).String(), "10.71.22.162"; got != want {
+	if got, want := getIP(t, rangeConfig.controlPlaneStart).String(), "10.71.22.162"; got != want {
 		t.Fatalf("unexpected controlPlaneStart: got %q, want %q", got, want)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.controlPlaneEnd).String(), "10.71.22.165"; got != want {
+	if got, want := getIP(t, rangeConfig.controlPlaneEnd).String(), "10.71.22.165"; got != want {
 		t.Fatalf("unexpected controlPlaneEnd: got %q, want %q", got, want)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.workerStart).String(), "10.71.22.166"; got != want {
+	if got, want := getIP(t, rangeConfig.workerStart).String(), "10.71.22.166"; got != want {
 		t.Fatalf("unexpected workerStart: got %q, want %q", got, want)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.workerEnd).String(), "10.71.22.190"; got != want {
+	if got, want := getIP(t, rangeConfig.workerEnd).String(), "10.71.22.190"; got != want {
 		t.Fatalf("unexpected workerEnd: got %q, want %q", got, want)
 	}
 }
@@ -159,11 +159,11 @@ func TestNewIPv4RangeHonorsDynamicControlPlaneReserve(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.controlPlaneEnd).String(), "10.71.22.163"; got != want {
+	if got, want := getIP(t, rangeConfig.controlPlaneEnd).String(), "10.71.22.163"; got != want {
 		t.Fatalf("unexpected controlPlaneEnd for reserve=2: got %q, want %q", got, want)
 	}
 
-	if got, want := uint32ToIPv4(rangeConfig.workerStart).String(), "10.71.22.164"; got != want {
+	if got, want := getIP(t, rangeConfig.workerStart).String(), "10.71.22.164"; got != want {
 		t.Fatalf("unexpected workerStart for reserve=2: got %q, want %q", got, want)
 	}
 }
@@ -366,4 +366,16 @@ addresses:
 	if entry["address"] != "10.71.22.173/27" {
 		t.Fatalf("unexpected managed address: %v", entry["address"])
 	}
+}
+
+// getIP is a helper-function that handled potential errors in place and returns
+// netip.Addr to the tests.
+func getIP(t *testing.T, input uint32) netip.Addr {
+	t.Helper()
+	ip, err := uint32ToIPv4(input)
+	if err != nil {
+		t.Fatal("expected ip addr, got err: %w", err)
+	}
+
+	return ip
 }
