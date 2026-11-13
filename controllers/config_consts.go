@@ -20,9 +20,9 @@ import (
 
 // TODO: consider smarter loading of vars based on app prefix
 const (
-	KeyNoProxy          dyconfig.Key = "dockyards-kubevirt.env.NO_PROXY"
-	KeyHttpProxy        dyconfig.Key = "dockyards-kubevirt.env.HTTP_PROXY"
-	KeyHttpsProxy       dyconfig.Key = "dockyards-kubevirt.env.HTTPS_PROXY"
-	KeyNtpServers       dyconfig.Key = "dockyards-kubevirt.ntp.servers"
-	KeyPtpDevices       dyconfig.Key = "dockyards-kubevirt.ptp.devices"
+	KeyNoProxy    dyconfig.Key = "dockyards-kubevirt.env.NO_PROXY"
+	KeyHTTPProxy  dyconfig.Key = "dockyards-kubevirt.env.HTTP_PROXY"
+	KeyHTTPSProxy dyconfig.Key = "dockyards-kubevirt.env.HTTPS_PROXY"
+	KeyNtpServers dyconfig.Key = "dockyards-kubevirt.ntp.servers"
+	KeyPtpDevices dyconfig.Key = "dockyards-kubevirt.ptp.devices"
 )

@@ -98,7 +98,7 @@ func (c *SubjectAllowCache) isAllowedVM(ctx context.Context, stream *console.Str
 	return allowed
 }
 
-func (c *SubjectAllowCache) allowList(ctx context.Context, subject string, resourceName string, stream *console.Stream) *AllowList {
+func (c *SubjectAllowCache) allowList(ctx context.Context, subject string, _ string, stream *console.Stream) *AllowList {
 	c.Mtx.Lock()
 	if c.AllowList == nil {
 		c.AllowList = make(map[*console.Stream]*AllowList)
@@ -168,17 +168,17 @@ func (c *SubjectAllowCache) watchSubjectAllowEntries(ctx context.Context, allowL
 	tick := make(chan struct{})
 	synced := atomic.Bool{}
 	funcs := cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj any) {
+		AddFunc: func(_ any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
 		},
-		UpdateFunc: func(oldObj, newObj any) {
+		UpdateFunc: func(_, _ any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
 		},
-		DeleteFunc: func(obj any) {
+		DeleteFunc: func(_ any) {
 			if synced.Load() {
 				tick <- struct{}{}
 			}
@@ -576,7 +576,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	conn.SetCloseHandler(func(code int, text string) error {
+	conn.SetCloseHandler(func(_ int, _ string) error {
 		cancel()
 
 		return nil
@@ -588,7 +588,7 @@ func (a *API) vnc(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	vnc.SetCloseHandler(func(code int, text string) error {
+	vnc.SetCloseHandler(func(_ int, _ string) error {
 		cancel()
 
 		return nil

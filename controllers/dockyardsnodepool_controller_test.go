@@ -1502,8 +1502,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosControlPlane(t *testing.T) {
 			Spec: controlplanev1.TalosControlPlaneSpec{
 				ControlPlaneConfig: controlplanev1.ControlPlaneConfig{
 					ControlPlaneConfig: bootstrapv1.TalosConfigSpec{
-						GenerateType: "controlplane",
-						TalosVersion: "v1.12",
+						GenerateType:     "controlplane",
+						TalosVersion:     "v1.12",
 						StrategicPatches: []string{string(configPatch)},
 					},
 				},
@@ -2958,8 +2958,8 @@ func TestDockyardsNodePoolReconciler_ReconcileTalosConfigTemplate(t *testing.T) 
 		r := DockyardsNodePoolReconciler{
 			Client: mgr.GetClient(),
 			DockyardsConfig: dyconfig.NewFakeConfigManager(map[dyconfig.Key]string{
-				KeyHttpProxy:  "http://proxy.example.com:3128",
-				KeyHttpsProxy: "http://proxy.example.com:3128",
+				KeyHTTPProxy:  "http://proxy.example.com:3128",
+				KeyHTTPSProxy: "http://proxy.example.com:3128",
 				KeyNoProxy:    "localhost,127.0.0.1,.cluster.local",
 			}),
 		}
