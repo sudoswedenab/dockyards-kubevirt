@@ -17,6 +17,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"html"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -415,7 +416,8 @@ func (a *API) setVirtualMachineState(w http.ResponseWriter, r *http.Request) {
 	default:
 		logger.Error("invalid power state", "powerState", powerState)
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("invalid powerstate: " + powerState)) // Best effort
+		out := html.EscapeString(fmt.Sprintf("invalid powerstate: %s", powerState))
+		_, _ = w.Write([]byte(out)) // Best effort
 
 		return
 	}

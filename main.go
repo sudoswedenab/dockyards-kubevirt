@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
 	"slices"
 
@@ -148,7 +149,15 @@ func main() {
 	go func() {
 		addr := ":9002"
 		logger.Info("serving http", "addr", addr)
-		err := http.ListenAndServe(addr, public)
+
+		server := &http.Server{
+			Addr:         addr,
+			Handler:      public,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+		err := server.ListenAndServe()
 		if err != nil {
 			logger.Error("error running server", "err", err)
 

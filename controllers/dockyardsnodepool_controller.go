@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -387,7 +388,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 				Spec: kubevirtv1.VirtualMachineInstanceSpec{
 					Domain: kubevirtv1.DomainSpec{
 						CPU: &kubevirtv1.CPU{
-							Cores: uint32(cpu.Value()),
+							Cores: uint32(max(1, min(math.MaxUint32, cpu.Value()))), // Clamp cores between 1 and max uint32
 						},
 						Devices: kubevirtv1.Devices{
 							Disks:                      disks,

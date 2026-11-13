@@ -673,10 +673,10 @@ func ipv4ToUint32(addr netip.Addr) uint32 {
 
 func uint32ToIPv4(value uint32) netip.Addr {
 	bytes := [4]byte{
-		byte(value >> 24),
-		byte(value >> 16),
-		byte(value >> 8),
-		byte(value),
+		byte(value >> 24 & 0xFF),
+		byte(value >> 16 & 0xFF),
+		byte(value >> 8 & 0xFF),
+		byte(value & 0xFF),
 	}
 
 	return netip.AddrFrom4(bytes)
