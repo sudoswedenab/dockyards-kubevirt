@@ -17,9 +17,11 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"slices"
 	"time"
@@ -513,7 +515,7 @@ func nextAvailableIP(controlPlane bool, inUse map[uint32]struct{}, subnet ipv4Ra
 				continue
 			}
 
-			return uint32ToIPv4(v), nil
+			return uint32ToIPv4(v)
 		}
 
 		return netip.Addr{}, errNoControlPlaneIPsAvailable
@@ -524,7 +526,7 @@ func nextAvailableIP(controlPlane bool, inUse map[uint32]struct{}, subnet ipv4Ra
 			continue
 		}
 
-		return uint32ToIPv4(v), nil
+		return uint32ToIPv4(v)
 	}
 
 	return netip.Addr{}, errNoWorkerIPsAvailable
@@ -671,15 +673,11 @@ func ipv4ToUint32(addr netip.Addr) uint32 {
 	return uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
 }
 
-func uint32ToIPv4(value uint32) netip.Addr {
-	bytes := [4]byte{
-		byte(value >> 24),
-		byte(value >> 16),
-		byte(value >> 8),
-		byte(value),
-	}
+func uint32ToIPv4(n uint32) (netip.Addr, error) {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, n)
 
-	return netip.AddrFrom4(bytes)
+	return netip.ParseAddr(ip.String())
 }
 
 func upsertLinkConfigPatch(patches []string, interfaceName, addressWithPrefix string) ([]string, bool, error) {
