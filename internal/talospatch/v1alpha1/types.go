@@ -276,41 +276,41 @@ type Args map[string]ArgValue
 
 var _ yaml.IsZeroer = &Args{}
 
-func (a *Args) IsZero() bool {
-	return *a == nil
+func (s *Args) IsZero() bool {
+	return *s == nil
 }
 
-func (a *Args) Add(key string, value string) {
-	if *a == nil {
-		*a = map[string]ArgValue{}
+func (s *Args) Add(key string, value string) {
+	if *s == nil {
+		*s = map[string]ArgValue{}
 	}
-	(*a)[key] = append((*a)[key], value)
+	(*s)[key] = append((*s)[key], value)
 }
 
 type ArgValue []string
 
 var _ yaml.IsZeroer = &ArgValue{}
 
-func (a *ArgValue) IsZero() bool {
-	return *a == nil
+func (e *ArgValue) IsZero() bool {
+	return *e == nil
 }
 
 // NOTE: `a` needs to not be passed by reference, since otherwise the yaml package will not call this function.
-func (a ArgValue) MarshalYAML() (any, error) {
-	if len(a) == 0 {
+func (e ArgValue) MarshalYAML() (any, error) {
+	if len(e) == 0 {
 		return nil, nil
 	}
 
-	if len(a) == 1 {
+	if len(e) == 1 {
 		return &yaml.Node{
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!str",
-			Value: (a)[0],
+			Value: (e)[0],
 		}, nil
 	}
 
-	content := make([]*yaml.Node, 0, len(a))
-	for _, value := range a {
+	content := make([]*yaml.Node, 0, len(e))
+	for _, value := range e {
 		content = append(content, &yaml.Node{
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!str",
@@ -325,11 +325,11 @@ func (a ArgValue) MarshalYAML() (any, error) {
 	}, nil
 }
 
-func (v *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
+func (e *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
 	// Try parsing scalar value
 	var scalar string
 	if err := unmarshal(&scalar); err == nil {
-		*v = append(*v, scalar)
+		*e = append(*e, scalar)
 
 		return nil
 	}
@@ -337,7 +337,7 @@ func (v *ArgValue) UnmarshalYAML(unmarshal func(any) error) error {
 	// If it fails, try parsing it as an array instead
 	var list []string
 	if err := unmarshal(&list); err == nil {
-		*v = list
+		*e = list
 
 		return nil
 	}

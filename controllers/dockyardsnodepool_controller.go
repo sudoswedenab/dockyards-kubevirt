@@ -672,12 +672,12 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 		patch.Machine.Env.Set("no_proxy", value)
 	}
 
-	value, found = r.DockyardsConfig.GetValueForKey(KeyHttpProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(KeyHTTPProxy)
 	if found {
 		patch.Machine.Env.Set("http_proxy", value)
 	}
 
-	value, found = r.DockyardsConfig.GetValueForKey(KeyHttpsProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(KeyHTTPSProxy)
 	if found {
 		patch.Machine.Env.Set("https_proxy", value)
 	}
