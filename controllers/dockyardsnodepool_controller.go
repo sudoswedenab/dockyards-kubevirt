@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -69,13 +70,12 @@ type StrategicPatches []string
 
 type DockyardsNodePoolReconciler struct {
 	client.Client
-
-	TalosClusterDiscoveryServiceEndpoint string
 	DataVolumeStorageClassName           *string
-	EnableMultus                         bool
-	ValidNodeIPSubnets                   []string
-	UseBlockStorage                      bool
 	DockyardsConfig                      *dyconfig.ConfigManager
+	TalosClusterDiscoveryServiceEndpoint string
+	ValidNodeIPSubnets                   []string
+	EnableMultus                         bool
+	UseBlockStorage                      bool
 	NetworkInterfaceMultiQueue           bool
 }
 
@@ -163,24 +163,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			return ctrl.Result{}, err
 		}
 	} else {
-		release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
-		if err != nil {
-			return ctrl.Result{}, nil
-		}
-
-		if release == nil {
-			logger.Info("ignoring machine template without default release")
-
-			return ctrl.Result{}, nil
-		}
-
-		err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
-		if apierrors.IsNotFound(err) {
-			conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
-
-			return ctrl.Result{}, nil
-		}
-
+		dataSource, err = r.reconcileDefaultDataStore(ctx, dockyardsNodePool)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -221,6 +204,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	}
 
 	operationResult, err := controllerutil.CreateOrPatch(ctx, r.Client, &machineTemplate, func() error {
+		const nameBoot = "boot"
 		machineTemplate.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: dockyardsv1.GroupVersion.String(),
@@ -245,7 +229,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
 			{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "boot",
+					Name: nameBoot,
 				},
 				Spec: cdiv1.DataVolumeSpec{
 					PVC: &corev1.PersistentVolumeClaimSpec{
@@ -281,7 +265,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 						Bus: kubevirtv1.DiskBusVirtio,
 					},
 				},
-				Name: "boot",
+				Name: nameBoot,
 			},
 		}
 
@@ -289,10 +273,10 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			{
 				VolumeSource: kubevirtv1.VolumeSource{
 					DataVolume: &kubevirtv1.DataVolumeSource{
-						Name: "boot",
+						Name: nameBoot,
 					},
 				},
-				Name: "boot",
+				Name: nameBoot,
 			},
 		}
 
@@ -392,6 +376,11 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			networks = append([]kubevirtv1.Network{*kubevirtv1.DefaultPodNetwork()}, networks...)
 		}
 
+		cores, err := strconv.ParseUint(cpu.String(), 10, 32)
+		if err != nil {
+			return err
+		}
+
 		machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec = kubevirtv1.VirtualMachineSpec{
 			DataVolumeTemplates: dataVolumeTemplates,
 			RunStrategy:         ptr.To(kubevirtv1.RunStrategyAlways),
@@ -399,7 +388,7 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 				Spec: kubevirtv1.VirtualMachineInstanceSpec{
 					Domain: kubevirtv1.DomainSpec{
 						CPU: &kubevirtv1.CPU{
-							Cores: uint32(cpu.Value()),
+							Cores: uint32(cores),
 						},
 						Devices: kubevirtv1.Devices{
 							Disks:                      disks,
@@ -417,22 +406,24 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 			},
 		}
 
-		if nodeClass != nil {
-			if nodeClass.Spec.NodeSelector != nil {
-				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.NodeSelector = nodeClass.Spec.NodeSelector
+		if nodeClass == nil {
+			return nil
+		}
+
+		if nodeClass.Spec.NodeSelector != nil {
+			machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.NodeSelector = nodeClass.Spec.NodeSelector
+		}
+
+		if nodeClass.Spec.NodeAffinity != nil {
+			if machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity == nil {
+				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{}
 			}
 
-			if nodeClass.Spec.NodeAffinity != nil {
-				if machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity == nil {
-					machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{}
-				}
+			machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity.NodeAffinity = nodeClass.Spec.NodeAffinity
+		}
 
-				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Affinity.NodeAffinity = nodeClass.Spec.NodeAffinity
-			}
-
-			if nodeClass.Spec.Tolerations != nil {
-				machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Tolerations = nodeClass.Spec.Tolerations
-			}
+		if nodeClass.Spec.Tolerations != nil {
+			machineTemplate.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template.Spec.Tolerations = nodeClass.Spec.Tolerations
 		}
 
 		return nil
@@ -446,6 +437,31 @@ func (r *DockyardsNodePoolReconciler) reconcileMachineTemplate(ctx context.Conte
 	logger.Info("reconciled machine template", "result", operationResult)
 
 	return ctrl.Result{}, nil
+}
+
+func (r *DockyardsNodePoolReconciler) reconcileDefaultDataStore(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (cdiv1.DataSource, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	var dataSource cdiv1.DataSource
+	release, err := apiutil.GetDefaultRelease(ctx, r.Client, dockyardsv1.ReleaseTypeTalosInstaller)
+	if err != nil {
+		return cdiv1.DataSource{}, nil
+	}
+
+	if release == nil {
+		logger.Info("ignoring machine template without default release")
+
+		return cdiv1.DataSource{}, nil
+	}
+
+	err = r.Get(ctx, client.ObjectKeyFromObject(release), &dataSource)
+	if apierrors.IsNotFound(err) {
+		conditions.MarkFalse(dockyardsNodePool, KubevirtMachineTemplateReconciledCondition, WaitingForDataSourceReason, "")
+
+		return cdiv1.DataSource{}, nil
+	}
+
+	return dataSource, err
 }
 
 func (r *DockyardsNodePoolReconciler) resolveTalosInstallerOverride(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*dockyardsv1.Cluster, *talosInstallerOverride, error) {
@@ -604,10 +620,7 @@ func cappedKubernetesName(base, suffix string) string {
 		return base + suffix
 	}
 
-	maxBaseLength := 253 - len(suffix)
-	if maxBaseLength < 0 {
-		maxBaseLength = 0
-	}
+	maxBaseLength := max(253-len(suffix), 0)
 
 	return base[:maxBaseLength] + suffix
 }
@@ -666,18 +679,18 @@ func (r *DockyardsNodePoolReconciler) talosConfigPatch(dockyardsCluster *dockyar
 		patch.Machine.Env.Set("no_proxy", value)
 	}
 
-	value, found = r.DockyardsConfig.GetValueForKey(KeyHttpProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(KeyHTTPProxy)
 	if found {
 		patch.Machine.Env.Set("http_proxy", value)
 	}
 
-	value, found = r.DockyardsConfig.GetValueForKey(KeyHttpsProxy)
+	value, found = r.DockyardsConfig.GetValueForKey(KeyHTTPSProxy)
 	if found {
 		patch.Machine.Env.Set("https_proxy", value)
 	}
 
 	if r.TalosClusterDiscoveryServiceEndpoint == "0" {
-		patch.Cluster.Discovery.Registries.Service.Disabled = ptr.To(true)
+		patch.Cluster.Discovery.Registries.Service.Disabled = new(true)
 	} else {
 		patch.Cluster.Discovery.Registries.Service.Endpoint = r.TalosClusterDiscoveryServiceEndpoint
 	}
@@ -703,7 +716,7 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 
 	clusterStorageClassName = strings.TrimSpace(clusterStorageClassName)
 	if clusterStorageClassName != "" {
-		return ptr.To(clusterStorageClassName), nil
+		return new(clusterStorageClassName), nil
 	}
 
 	return r.DataVolumeStorageClassName, nil
@@ -712,7 +725,7 @@ func (r *DockyardsNodePoolReconciler) resolveDataVolumeStorageClassName(ctx cont
 func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool) (*bool, error) {
 	ownerCluster, err := apiutil.GetOwnerCluster(ctx, r.Client, dockyardsNodePool)
 	if apierrors.IsNotFound(err) {
-		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+		return new(r.NetworkInterfaceMultiQueue), nil
 	}
 
 	if err != nil {
@@ -720,7 +733,7 @@ func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx cont
 	}
 
 	if ownerCluster.Name == "" {
-		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+		return new(r.NetworkInterfaceMultiQueue), nil
 	}
 
 	unstructuredDockyardsCluster := unstructured.Unstructured{
@@ -745,10 +758,10 @@ func (r *DockyardsNodePoolReconciler) resolveNetworkInterfaceMultiqueue(ctx cont
 	}
 
 	if !found {
-		return ptr.To(r.NetworkInterfaceMultiQueue), nil
+		return new(r.NetworkInterfaceMultiQueue), nil
 	}
 
-	return ptr.To(enabled), nil
+	return new(enabled), nil
 }
 
 func (r *DockyardsNodePoolReconciler) timeSyncConfigPatch() talospatchv1.TimeSyncConfig {
@@ -860,12 +873,12 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 	dockyardsCluster *dockyardsv1.Cluster,
 	strategicPatches *StrategicPatches,
 ) error {
-	err := strategicPatches.Add(ptr.To(r.talosConfigPatch(dockyardsCluster)))
+	err := strategicPatches.Add(new(r.talosConfigPatch(dockyardsCluster)))
 	if err != nil {
 		return fmt.Errorf("could not add talos config patches: %w", err)
 	}
 
-	err = strategicPatches.Add(ptr.To(r.timeSyncConfigPatch()))
+	err = strategicPatches.Add(new(r.timeSyncConfigPatch()))
 	if err != nil {
 		return fmt.Errorf("could not add time sync config patches: %w", err)
 	}
@@ -876,13 +889,14 @@ func (r *DockyardsNodePoolReconciler) addSharedConfigPatches(
 		if err != nil {
 			return err
 		}
-
 	}
 
 	return nil
 }
 
 func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Context, dockyardsNodePool *dockyardsv1.NodePool, dockyardsCluster *dockyardsv1.Cluster) (ctrl.Result, error) {
+	const manifestAuthPath = "/var/manifests/authentication.yaml"
+
 	logger := ctrl.LoggerFrom(ctx)
 
 	if !dockyardsCluster.Status.APIEndpoint.IsValid() {
@@ -927,7 +941,7 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 	}
 
 	if dockyardsCluster.Spec.NoDefaultNetworkPlugin {
-		controlPlanePatch.Cluster.Network.CNI.Name = ptr.To("none")
+		controlPlanePatch.Cluster.Network.CNI.Name = new("none")
 	}
 
 	// Authentication configuration
@@ -941,14 +955,14 @@ func (r *DockyardsNodePoolReconciler) reconcileTalosControlPlane(ctx context.Con
 		controlPlanePatch.Machine.Files = append(controlPlanePatch.Machine.Files, talospatchv1.MachineFile{
 			Content:     string(content),
 			Permissions: 0o444,
-			Path:        "/var/manifests/authentication.yaml",
+			Path:        manifestAuthPath,
 			Op:          "create",
 		})
 
-		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("authentication-config", "/var/manifests/authentication.yaml")
+		controlPlanePatch.Cluster.APIServer.ExtraArgs.Add("authentication-config", manifestAuthPath)
 		controlPlanePatch.Cluster.APIServer.ExtraVolumes = append(controlPlanePatch.Cluster.APIServer.ExtraVolumes, talospatchv1.ExtraVolume{
-			HostPath:  "/var/manifests/authentication.yaml",
-			MountPath: "/var/manifests/authentication.yaml",
+			HostPath:  manifestAuthPath,
+			MountPath: manifestAuthPath,
 			Readonly:  true,
 		})
 	}
@@ -1223,6 +1237,7 @@ func (patches *StrategicPatches) Add(value yaml.IsZeroer) error {
 		return fmt.Errorf("could not marshal strategic patch: %w", err)
 	}
 	*patches = append(*patches, string(raw))
+
 	return nil
 }
 
@@ -1249,6 +1264,7 @@ func (patches *StrategicPatches) AddMany(value []dockyardsv1.Patch) error {
 		}
 		*patches = append(*patches, string(result))
 	}
+
 	return nil
 }
 

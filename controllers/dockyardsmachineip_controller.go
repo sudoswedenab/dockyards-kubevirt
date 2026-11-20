@@ -17,9 +17,11 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"slices"
 	"time"
@@ -100,6 +102,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err != nil {
 		if errors.Is(err, errControlPlaneRefUnavailable) {
 			logger.Info("unable to determine control plane replicas", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
+
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 
@@ -136,6 +139,7 @@ func (r *DockyardsMachineIPReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 		if errors.Is(err, errNoControlPlaneIPsAvailable) || errors.Is(err, errNoWorkerIPsAvailable) {
 			logger.Info("unable to allocate IP", "machine", machine.Name, "cluster", clusterKey.Name, "error", err)
+
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 
@@ -511,7 +515,7 @@ func nextAvailableIP(controlPlane bool, inUse map[uint32]struct{}, subnet ipv4Ra
 				continue
 			}
 
-			return uint32ToIPv4(v), nil
+			return uint32ToIPv4(v)
 		}
 
 		return netip.Addr{}, errNoControlPlaneIPsAvailable
@@ -522,7 +526,7 @@ func nextAvailableIP(controlPlane bool, inUse map[uint32]struct{}, subnet ipv4Ra
 			continue
 		}
 
-		return uint32ToIPv4(v), nil
+		return uint32ToIPv4(v)
 	}
 
 	return netip.Addr{}, errNoWorkerIPsAvailable
@@ -669,15 +673,11 @@ func ipv4ToUint32(addr netip.Addr) uint32 {
 	return uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
 }
 
-func uint32ToIPv4(value uint32) netip.Addr {
-	bytes := [4]byte{
-		byte(value >> 24),
-		byte(value >> 16),
-		byte(value >> 8),
-		byte(value),
-	}
+func uint32ToIPv4(n uint32) (netip.Addr, error) {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, n)
 
-	return netip.AddrFrom4(bytes)
+	return netip.ParseAddr(ip.String())
 }
 
 func upsertLinkConfigPatch(patches []string, interfaceName, addressWithPrefix string) ([]string, bool, error) {
@@ -846,35 +846,41 @@ func setLinkConfigAddress(doc map[string]any, interfaceName, addressWithPrefix s
 		addrMap, ok := entry.(map[string]any)
 		if !ok {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		valueRaw, ok := addrMap["address"]
 		if !ok {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		value, ok := valueRaw.(string)
 		if !ok {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		existingPrefix, err := netip.ParsePrefix(value)
 		if err != nil {
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		if existingPrefix == desiredPrefix {
 			foundDesired = true
 			nextAddresses = append(nextAddresses, entry)
+
 			continue
 		}
 
 		if existingPrefix.Bits() == desiredPrefix.Bits() && managedSubnet.Contains(existingPrefix.Addr()) {
 			changed = true
+
 			continue
 		}
 

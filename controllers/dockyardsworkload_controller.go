@@ -351,7 +351,6 @@ func (r *DockyardsWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if operationResult != controllerutil.OperationResultNone {
 			logger.Info("reconciled tls route", "result", operationResult)
 		}
-
 	}
 
 	return ctrl.Result{}, nil
@@ -397,7 +396,7 @@ func (r *DockyardsWorkloadReconciler) serviceToWorkload(ctx context.Context, obj
 	}
 }
 
-func (r *DockyardsWorkloadReconciler) resolveGatewayParentReference(ctx context.Context, ownerCluster *dockyardsv1.Cluster) (gatewayapiv1.ParentReference, error) {
+func (r *DockyardsWorkloadReconciler) resolveGatewayParentReference(_ context.Context, ownerCluster *dockyardsv1.Cluster) (gatewayapiv1.ParentReference, error) {
 	return resolveClusterGatewayParentReference(ownerCluster, r.GatewayParentReference)
 }
 
