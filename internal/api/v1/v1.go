@@ -291,7 +291,7 @@ func checkOrigin(configManager *dyconfig.ConfigManager) func (r *http.Request) b
 	return func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return false // This request was not by a webbrowser
+			return true // This request was not by a webbrowser
 		}
 
 		allowedOrigins := configManager.GetStringSliceOrDefault(dyconfig.KeyAllowedOrigins, nil)
