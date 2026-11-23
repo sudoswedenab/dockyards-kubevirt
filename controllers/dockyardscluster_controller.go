@@ -49,11 +49,10 @@ import (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=create;get;list;patch;watch
 
 type DockyardsClusterReconciler struct {
+	GatewayParentReference gatewayapiv1.ParentReference
 	client.Client
-
-	GatewayParentReference   gatewayapiv1.ParentReference
-	DockyardsSystemNamespace string
 	DockyardsConfig          *dyconfig.ConfigManager
+	DockyardsSystemNamespace string
 	EnableWorkloadIngress    bool
 }
 
@@ -169,6 +168,7 @@ func (r *DockyardsClusterReconciler) reconcileKubevirtCluster(ctx context.Contex
 	if operationResult != controllerutil.OperationResultNone {
 		logger.Info("reconciled kubevirt cluster", "result", operationResult)
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -251,6 +251,7 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 	publicNamespace := r.DockyardsConfig.GetValueOrDefault(dyconfig.KeyPublicNamespace, "dockyards-public")
 
 	_, err = controllerutil.CreateOrPatch(ctx, r.Client, &workload, func() error {
+		const nameIngressNginx = "ingress-nginx"
 		workload.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion: dockyardsv1.GroupVersion.String(),
@@ -262,19 +263,19 @@ func (r *DockyardsClusterReconciler) reconcileIngressNginx(ctx context.Context, 
 
 		workload.Spec.ClusterComponent = true
 		workload.Spec.Provenience = dockyardsv1.ProvenienceDockyards
-		workload.Spec.TargetNamespace = "ingress-nginx"
+		workload.Spec.TargetNamespace = nameIngressNginx
 
 		if workload.Labels == nil {
 			workload.Labels = map[string]string{}
 		}
 		workload.Labels[dockyardsv1.LabelClusterName] = dockyardsCluster.Name
 		workload.Labels[dockyardsv1.LabelWorkloadName] = name
-		workload.Labels[dockyardsv1.LabelWorkloadTemplateName] = "ingress-nginx"
+		workload.Labels[dockyardsv1.LabelWorkloadTemplateName] = nameIngressNginx
 		workload.Labels[dockyardsv1.LabelOrganizationName] = dockyardsCluster.Namespace
 
 		workload.Spec.WorkloadTemplateRef = &corev1.TypedObjectReference{
 			Kind:      dockyardsv1.WorkloadTemplateKind,
-			Name:      "ingress-nginx",
+			Name:      nameIngressNginx,
 			Namespace: &publicNamespace,
 		}
 
